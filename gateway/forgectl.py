@@ -16,6 +16,8 @@ import sys
 
 sys.path.insert(0, "/app")
 
+from datetime import UTC
+
 from app import db  # noqa: E402
 
 # Quota per plan. Deliberately generous at the free tier: the research is clear
@@ -78,8 +80,8 @@ def main() -> int:
         print(f"Revoked {n} key(s).")
 
     elif args.cmd == "stats":
-        from datetime import datetime, timezone
-        month = datetime.now(timezone.utc).strftime("%Y-%m")
+        from datetime import datetime
+        month = datetime.now(UTC).strftime("%Y-%m")
         with db.cursor() as conn:
             rows = conn.execute(
                 "SELECT k.label, k.plan, COUNT(*) AS calls, "

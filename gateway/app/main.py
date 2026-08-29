@@ -143,10 +143,16 @@ async def _gotenberg(path: str, files: list, data: dict | None = None) -> bytes:
     assert _client is not None
     try:
         resp = await _client.post(path, files=files, data=data or {})
-    except httpx.TimeoutException:
-        raise HTTPException(504, "Rendering timed out. Try a smaller document.")
+    # Infrastructure failures keep their cause chained, so the traceback in our
+    # logs still says which call actually broke.
+    except httpx.TimeoutException as exc:
+        raise HTTPException(
+            504, "Rendering timed out. Try a smaller document."
+        ) from exc
     except httpx.RequestError as exc:
-        raise HTTPException(502, f"Rendering backend unavailable: {exc.__class__.__name__}")
+        raise HTTPException(
+            502, f"Rendering backend unavailable: {exc.__class__.__name__}"
+        ) from exc
 
     if resp.status_code >= 400:
         # Gotenberg's own message is genuinely useful (unsupported format, bad
@@ -275,7 +281,9 @@ async def render_image(
     try:
         body: dict[str, Any] = await request.json()
     except Exception:
-        raise HTTPException(400, "Body must be JSON.")
+        # Caller-input errors are suppressed rather than chained — the cause is
+        # their payload, and the parser's traceback is noise in our logs.
+        raise HTTPException(400, "Body must be JSON.") from None
 
     template = body.get("template")
     if not isinstance(template, str) or not template.strip():
@@ -302,11 +310,14 @@ async def render_image(
     try:
         html = _jinja.from_string(template).render(**data)
     except SecurityError:
-        # Deliberately terse. Echoing which internal the sandbox blocked just
-        # helps someone map the sandbox boundary.
-        raise HTTPException(422, "Template uses operations that are not permitted.")
+        # Deliberately terse, and deliberately unchained. Echoing which internal
+        # the sandbox blocked — in the response or the logs — just helps someone
+        # map the sandbox boundary.
+        raise HTTPException(
+            422, "Template uses operations that are not permitted."
+        ) from None
     except Exception as exc:
-        raise HTTPException(422, f"Template error: {exc}")
+        raise HTTPException(422, f"Template error: {exc}") from None
 
     async with _img_sem:
         img = await _gotenberg(

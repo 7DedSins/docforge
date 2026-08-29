@@ -2,7 +2,7 @@
 
 ## Reporting
 
-Open a [security advisory](https://github.com/7DedSins/forge/security/advisories/new)
+Open a [security advisory](https://github.com/7DedSins/docforge/security/advisories/new)
 rather than a public issue.
 
 ## Threat model

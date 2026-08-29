@@ -6,6 +6,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/7DedSins/docforge/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/7DedSins/docforge/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg">
   <img alt="Docker" src="https://img.shields.io/badge/docker-compose-2496ED.svg?logo=docker&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/python-3.12-3776AB.svg?logo=python&logoColor=white">
@@ -37,7 +38,8 @@ every call, and stop a traffic spike from taking the host down. One
 ## Quick start
 
 ```bash
-git clone https://github.com/7DedSins/forge && cd forge
+git clone https://github.com/7DedSins/docforge && cd docforge
+cp .env.example .env    # set FORGE_DOMAIN to your hostname
 docker compose up -d
 docker exec forge-gateway python /app/forgectl.py issue --label me --plan pro
 ```
@@ -170,6 +172,19 @@ Stated plainly, because you'll hit them otherwise:
   templates if you need specific ones.
 - **No async/webhook mode.** Every call blocks until the file is ready.
 - Request body capped at 32 MB, timeout 180 s, image dimensions 16–4000 px.
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+64 tests, no containers or network required — the renderer is stubbed, so what's
+under test is the part this project actually owns: authentication, quota
+accounting, input validation, and the template sandbox. Both vulnerabilities
+found during development (template injection and SSRF) have regression tests, so
+neither can return silently.
 
 ## Documentation
 

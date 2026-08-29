@@ -16,7 +16,7 @@ import secrets
 import sqlite3
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 DB_PATH = os.environ.get("FORGE_DB_PATH", "/data/forge.db")
 
@@ -93,7 +93,7 @@ def create_key(label: str = "", plan: str = "free", monthly_quota: int = 250) ->
             "INSERT INTO api_keys (key_hash, label, plan, monthly_quota, created_at) "
             "VALUES (?, ?, ?, ?, ?)",
             (hash_key(raw), label, plan, monthly_quota,
-             datetime.now(timezone.utc).isoformat()),
+             datetime.now(UTC).isoformat()),
         )
     return raw
 
@@ -109,7 +109,7 @@ def lookup_key(raw: str) -> sqlite3.Row | None:
 
 def month_usage(key_hash: str) -> int:
     """Units consumed in the current UTC calendar month."""
-    prefix = datetime.now(timezone.utc).strftime("%Y-%m")
+    prefix = datetime.now(UTC).strftime("%Y-%m")
     with cursor() as conn:
         row = conn.execute(
             "SELECT COALESCE(SUM(units), 0) AS n FROM usage "
@@ -126,6 +126,6 @@ def record(key_hash: str, endpoint: str, units: int, status: int, ms: int) -> No
         conn.execute(
             "INSERT INTO usage (key_hash, ts, endpoint, units, status, ms) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (key_hash, datetime.now(timezone.utc).isoformat(), endpoint,
+            (key_hash, datetime.now(UTC).isoformat(), endpoint,
              units, status, ms),
         )
