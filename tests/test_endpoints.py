@@ -173,3 +173,29 @@ def test_openapi_schema_generates(client):
     for path in ("/v1/convert/office", "/v1/convert/html",
                  "/v1/pdf/merge", "/v1/image/render"):
         assert path in schema["paths"], f"{path} missing from OpenAPI schema"
+
+
+def test_openapi_is_30_for_marketplace_importers(client):
+    """RapidAPI and most generators parse 3.0; a 3.1 document imports badly.
+
+    FastAPI defaults to 3.1.0, and `FastAPI(openapi_version=...)` is not a real
+    parameter — it lands in **extra and is silently ignored — so this is
+    enforced by overriding app.openapi.
+    """
+    schema = client.get("/openapi.json").json()
+    assert schema["openapi"].startswith("3.0")
+
+
+def test_openapi_declares_a_server(client):
+    """Without this, imported snippets point at a relative path."""
+    schema = client.get("/openapi.json").json()
+    assert schema["servers"]
+    assert schema["servers"][0]["url"].startswith("http")
+
+
+def test_openapi_uses_no_31_only_constructs(client):
+    """The 3.0 declaration is only honest while the body stays 3.0-valid."""
+    import json
+    raw = json.dumps(client.get("/openapi.json").json())
+    for construct in ('"const":', '"examples": [', '"prefixItems":'):
+        assert construct not in raw, f"3.1-only construct present: {construct}"

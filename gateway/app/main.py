@@ -80,9 +80,50 @@ MAX_TEMPLATE_BYTES = 256 * 1024
 app = FastAPI(
     title="DocForge API",
     version="1.1.0",
-    description="Document conversion and template image rendering.",
+    description=(
+        "Convert office documents and HTML to PDF, merge PDFs, and render "
+        "HTML templates to images. One unit per call regardless of file size; "
+        "failed calls are never billed."
+    ),
     docs_url="/docs",
+    # Without an explicit server the importer has no base URL to call, and
+    # every generated snippet points at a relative path.
+    servers=[{"url": f"https://{PUBLIC_HOST}", "description": "Production"}],
 )
+
+
+def _openapi_30() -> dict:
+    """Emit the schema as OpenAPI 3.0.3 rather than FastAPI's default 3.1.0.
+
+    Marketplaces and code generators — RapidAPI among them — still parse 3.0,
+    and given a 3.1 document they either reject it outright or import it with
+    operations silently missing.
+
+    This has to override `app.openapi` rather than pass `openapi_version=` to
+    `FastAPI(...)`: that is not a constructor parameter (checked, 0.115.6), so
+    it lands in `**extra` and is ignored without any error. The document still
+    said 3.1.0 and nothing indicated why.
+
+    Only the declared version changes. This API uses no 3.1-only JSON Schema
+    constructs, so the body is already valid 3.0 — there is a test asserting
+    that stays true.
+    """
+    if app.openapi_schema:
+        return app.openapi_schema
+    from fastapi.openapi.utils import get_openapi
+
+    app.openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        openapi_version="3.0.3",
+        description=app.description,
+        routes=app.routes,
+        servers=app.servers,
+    )
+    return app.openapi_schema
+
+
+app.openapi = _openapi_30
 
 _client: httpx.AsyncClient | None = None
 _sweeper: asyncio.Task | None = None
