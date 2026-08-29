@@ -380,7 +380,10 @@ OFFICE_EXT = {
 
 
 @app.post("/v1/convert/office", tags=["Documents"], operation_id="convertOffice",
-          summary="Convert an office document to PDF")
+          summary="Convert an office document to PDF",
+          response_class=Response,
+          responses={200: {"content": {"application/pdf": {}},
+                           "description": "The converted PDF"}})
 async def convert_office(
     file: UploadFile = File(..., description="DOCX, XLSX, PPTX, ODT, RTF, CSV…"),
     landscape: bool = Form(False),
@@ -409,7 +412,10 @@ async def convert_office(
 
 
 @app.post("/v1/convert/html", tags=["Documents"], operation_id="convertHtml",
-          summary="Convert HTML to PDF")
+          summary="Convert HTML to PDF",
+          response_class=Response,
+          responses={200: {"content": {"application/pdf": {}},
+                           "description": "The rendered PDF"}})
 async def convert_html(
     html: str = Form(..., description="Full HTML document"),
     landscape: bool = Form(False),
@@ -434,7 +440,10 @@ async def convert_html(
 
 
 @app.post("/v1/pdf/merge", tags=["Documents"], operation_id="mergePdfs",
-          summary="Merge several PDFs into one")
+          summary="Merge several PDFs into one",
+          response_class=Response,
+          responses={200: {"content": {"application/pdf": {}},
+                           "description": "The merged PDF"}})
 async def merge_pdfs(
     files: list[UploadFile] = File(..., description="Two or more PDFs, in order"),
     caller: Caller = Depends(authenticate),
@@ -465,8 +474,50 @@ async def merge_pdfs(
 # Images
 # --------------------------------------------------------------------------
 
+# The body is declared through openapi_extra rather than a Pydantic parameter.
+# A declared model would make FastAPI validate and reject before the handler
+# runs, replacing specific messages ("width and height must be between 16 and
+# 4000") with a generic 422 array. But with no declaration at all, the OpenAPI
+# document carries no requestBody — so a marketplace renders the endpoint as
+# taking no input and nobody can work out how to call it. This documents the
+# body and leaves the runtime contract untouched.
+RENDER_IMAGE_BODY = {
+    "required": True,
+    "content": {"application/json": {"schema": {
+        "type": "object",
+        "required": ["template"],
+        "properties": {
+            "template": {
+                "type": "string",
+                "description": "HTML with Jinja2 placeholders, e.g. <h1>{{ title }}</h1>",
+            },
+            "data": {
+                "type": "object",
+                "description": "Values substituted into the template",
+            },
+            "width": {"type": "integer", "default": 1200, "minimum": 16, "maximum": 4000},
+            "height": {"type": "integer", "default": 630, "minimum": 16, "maximum": 4000},
+            "format": {"type": "string", "enum": ["png", "jpeg", "webp"], "default": "png"},
+        },
+        "example": {
+            "template": "<div style='width:1200px;height:630px;display:flex;"
+                        "align-items:center;justify-content:center;background:#0f172a;"
+                        "font-family:sans-serif'><h1 style='color:#fff;font-size:72px'>"
+                        "{{ title }}</h1></div>",
+            "data": {"title": "Hello world"},
+            "width": 1200, "height": 630, "format": "png",
+        },
+    }}},
+}
+
+
 @app.post("/v1/image/render", tags=["Images"], operation_id="renderImage",
-          summary="Render an HTML template to an image")
+          summary="Render an HTML template to an image",
+          response_class=Response,
+          openapi_extra={"requestBody": RENDER_IMAGE_BODY},
+          responses={200: {"content": {"image/png": {}, "image/jpeg": {},
+                                       "image/webp": {}},
+                           "description": "The rendered image"}})
 async def render_image(request: Request, caller: Caller = Depends(authenticate)):
     """Render an HTML template plus JSON data to an image.
 
