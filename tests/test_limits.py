@@ -154,32 +154,60 @@ def test_demo_never_touches_customer_usage(client):
 # Marketplace proxy secret
 # --------------------------------------------------------------------------
 
-def test_direct_requests_refused_when_proxy_secret_set(client, auth, monkeypatch):
-    """Without this, anyone reading the base URL off the listing bypasses billing."""
+@pytest.fixture
+def marketplace(monkeypatch, key):
+    """Configure the marketplace path: proxy secret plus the key it bills to."""
     monkeypatch.setattr(main_module, "RAPIDAPI_PROXY_SECRET", "s3cret")
-    assert _render(client, auth).status_code == 403
+    monkeypatch.setattr(main_module, "RAPIDAPI_KEY", key)
+    return {"X-RapidAPI-Proxy-Secret": "s3cret"}
 
 
-def test_correct_proxy_secret_allowed(client, auth, monkeypatch):
+def test_marketplace_call_needs_no_docforge_key(client, marketplace):
+    """RapidAPI strips its own key and never forwards a DocForge one.
+
+    Regression: authenticate() demanded Authorization regardless, so every
+    marketplace request 401'd. Caught only by calling the live proxy.
+    """
+    assert _render(client, marketplace).status_code == 200
+
+
+def test_wrong_proxy_secret_refused(client, monkeypatch, key):
     monkeypatch.setattr(main_module, "RAPIDAPI_PROXY_SECRET", "s3cret")
-    h = dict(auth, **{"X-RapidAPI-Proxy-Secret": "s3cret"})
-    assert _render(client, h).status_code == 200
+    monkeypatch.setattr(main_module, "RAPIDAPI_KEY", key)
+    assert _render(client, {"X-RapidAPI-Proxy-Secret": "wrong"}).status_code == 403
 
 
-def test_wrong_proxy_secret_refused(client, auth, monkeypatch):
+def test_marketplace_unconfigured_is_503_not_a_silent_401(client, monkeypatch):
+    """A missing marketplace key is our misconfiguration, not the caller's."""
     monkeypatch.setattr(main_module, "RAPIDAPI_PROXY_SECRET", "s3cret")
-    h = dict(auth, **{"X-RapidAPI-Proxy-Secret": "wrong"})
-    assert _render(client, h).status_code == 403
+    monkeypatch.setattr(main_module, "RAPIDAPI_KEY", "")
+    assert _render(client, {"X-RapidAPI-Proxy-Secret": "s3cret"}).status_code == 503
 
 
-def test_marketplace_user_recorded_as_subject(client, auth, key, monkeypatch):
+def test_direct_key_still_works_alongside_marketplace(client, auth, marketplace):
+    """Direct customers must not be locked out once the marketplace is live."""
+    assert _render(client, auth).status_code == 200
+
+
+def test_marketplace_user_recorded_as_subject(client, marketplace):
     """Needed to tell one marketplace end-user from another under one key."""
-    monkeypatch.setattr(main_module, "RAPIDAPI_PROXY_SECRET", "s3cret")
-    h = dict(auth, **{"X-RapidAPI-Proxy-Secret": "s3cret", "X-RapidAPI-User": "alice"})
+    h = dict(marketplace, **{"X-RapidAPI-User": "alice"})
     assert _render(client, h).status_code == 200
     with db.cursor() as conn:
         row = conn.execute("SELECT subject FROM usage ORDER BY id DESC LIMIT 1").fetchone()
     assert row["subject"] == "alice"
+
+
+def test_marketplace_users_are_rate_limited_separately(client, monkeypatch, marketplace):
+    """One busy subscriber must not throttle every other subscriber."""
+    monkeypatch.setattr(main_module, "DEFAULT_RATE_PER_MIN", 1)
+    with db.cursor(write=True) as conn:
+        conn.execute("UPDATE api_keys SET rate_per_min = 1")
+    a = dict(marketplace, **{"X-RapidAPI-User": "alice"})
+    b = dict(marketplace, **{"X-RapidAPI-User": "bob"})
+    assert _render(client, a).status_code == 200
+    assert _render(client, b).status_code == 200      # bob unaffected by alice
+    assert _render(client, a).status_code == 429
 
 
 # --------------------------------------------------------------------------

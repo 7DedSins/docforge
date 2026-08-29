@@ -59,6 +59,12 @@ DEMO_MAX_BYTES = 5 * 1024 * 1024
 # base URL off the marketplace listing can call the API directly and never pay.
 RAPIDAPI_PROXY_SECRET = os.environ.get("DOCFORGE_RAPIDAPI_PROXY_SECRET", "").strip()
 
+# The DocForge key marketplace traffic is metered against. Marketplace consumers
+# never hold a DocForge key — they authenticate to the marketplace, which proves
+# itself to us with the proxy secret — so their calls still need an identity on
+# this side for usage to attach to.
+RAPIDAPI_KEY = os.environ.get("DOCFORGE_RAPIDAPI_KEY", "").strip()
+
 # Global backstop: protects the host regardless of who is calling.
 _doc_sem = asyncio.Semaphore(MAX_DOCS)
 _img_sem = asyncio.Semaphore(MAX_IMAGES)
@@ -257,32 +263,53 @@ async def authenticate(
 ) -> Caller:
     """Resolve the caller, or reject.
 
-    Accepts `Authorization: Bearer <key>` or `X-API-Key: <key>` — RapidAPI and
-    most agent frameworks send one or the other, and supporting both removes an
-    integration step that would otherwise cost signups.
+    Two ways in, deliberately.
+
+    **Marketplace.** The consumer authenticates to RapidAPI. RapidAPI strips its
+    own key and forwards `X-RapidAPI-Proxy-Secret` plus `X-RapidAPI-User`. There
+    is no DocForge key in that request and there never will be — demanding one
+    401s every marketplace call, which is exactly how this was broken.
+
+    **Direct.** The customer sends a DocForge key we issued, as
+    `Authorization: Bearer <key>` or `X-API-Key: <key>`. Supporting both removes
+    an integration step that would otherwise cost signups.
+
+    Leaving the direct path open alongside the marketplace one does not create a
+    billing hole: bypassing the marketplace still requires a key we issued.
     """
-    if RAPIDAPI_PROXY_SECRET:
+    supplied_secret = (x_rapidapi_proxy_secret or "").strip()
+    subject = ""
+
+    if RAPIDAPI_PROXY_SECRET and supplied_secret:
         # Constant-time compare: a plain `!=` leaks the secret one byte at a
         # time to anyone willing to measure response latency.
-        supplied = (x_rapidapi_proxy_secret or "").strip()
-        if not secrets_equal(supplied, RAPIDAPI_PROXY_SECRET):
-            raise HTTPException(403, "Requests must arrive through the marketplace.")
-
-    raw = None
-    if authorization and authorization.lower().startswith("bearer "):
-        raw = authorization[7:].strip()
-    elif x_api_key:
-        raw = x_api_key.strip()
-
-    if not raw:
-        raise HTTPException(401, "Missing API key. Send 'Authorization: Bearer <key>'.")
+        if not secrets_equal(supplied_secret, RAPIDAPI_PROXY_SECRET):
+            raise HTTPException(403, "Invalid marketplace proxy secret.")
+        if not RAPIDAPI_KEY:
+            raise HTTPException(
+                503, "Marketplace access is not configured on this deployment."
+            )
+        raw = RAPIDAPI_KEY
+        # One marketplace key fronts every consumer, so rate limiting and
+        # concurrency bucket on this instead — otherwise one busy subscriber
+        # throttles all of them.
+        subject = (x_rapidapi_user or "").strip()
+    else:
+        raw = None
+        if authorization and authorization.lower().startswith("bearer "):
+            raw = authorization[7:].strip()
+        elif x_api_key:
+            raw = x_api_key.strip()
+        if not raw:
+            raise HTTPException(
+                401, "Missing API key. Send 'Authorization: Bearer <key>'."
+            )
 
     row = db.lookup_key(raw)
     if row is None:
         raise HTTPException(401, "Invalid or revoked API key.")
 
-    caller = Caller(row, db.month_usage(row["key_hash"]), client_ip(request),
-                    (x_rapidapi_user or "").strip())
+    caller = Caller(row, db.month_usage(row["key_hash"]), client_ip(request), subject)
 
     if caller.quota > 0 and caller.used >= caller.quota:
         raise HTTPException(

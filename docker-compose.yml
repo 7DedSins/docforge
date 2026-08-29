@@ -57,6 +57,9 @@ services:
       # matching X-RapidAPI-Proxy-Secret — otherwise anyone who reads the base
       # URL off the listing calls the API directly and never pays.
       - DOCFORGE_RAPIDAPI_PROXY_SECRET=${DOCFORGE_RAPIDAPI_PROXY_SECRET:-}
+      # The DocForge key marketplace traffic is metered against. Consumers
+      # arriving via the marketplace hold no DocForge key of their own.
+      - DOCFORGE_RAPIDAPI_KEY=${DOCFORGE_RAPIDAPI_KEY:-}
     volumes:
       - gateway_data:/data
     depends_on:
