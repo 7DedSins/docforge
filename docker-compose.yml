@@ -1,4 +1,4 @@
-# Forge — document + image rendering APIs.
+# DocForge — document + image rendering API.
 #
 # Memory limits on every service are deliberate and load-bearing: this box also
 # runs the Kavita/Stash/LANraragi media stack, and an unbounded Chromium pool
@@ -7,17 +7,17 @@
 services:
   caddy:
     image: caddy:2-alpine
-    container_name: forge-caddy
+    container_name: docforge-caddy
     restart: unless-stopped
     environment:
-      - FORGE_DOMAIN=${FORGE_DOMAIN}
+      - DOCFORGE_DOMAIN=${DOCFORGE_DOMAIN}
     ports:
-      # FORGE_BIND_IP is 0.0.0.0 on a normal server. Pin it to one address only
+      # DOCFORGE_BIND_IP is 0.0.0.0 on a normal server. Pin it to one address only
       # when something else already holds :80/:443 on another interface — e.g.
       # Tailscale Serve, which binds the tailnet address and would collide with
       # a wildcard bind, taking those private services down.
-      - "${FORGE_BIND_IP:-0.0.0.0}:80:80"
-      - "${FORGE_BIND_IP:-0.0.0.0}:443:443"
+      - "${DOCFORGE_BIND_IP:-0.0.0.0}:80:80"
+      - "${DOCFORGE_BIND_IP:-0.0.0.0}:443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -31,18 +31,18 @@ services:
 
   gateway:
     build: ./gateway
-    container_name: forge-gateway
+    container_name: docforge-gateway
     restart: unless-stopped
     environment:
       # Concurrency caps. Gotenberg benchmarks at ~8-10 simultaneous LibreOffice
       # conversions before resource contention; we stay under that and queue the
       # rest so a traffic spike degrades latency instead of killing the box.
-      - FORGE_MAX_CONCURRENT_DOCS=6
-      - FORGE_MAX_CONCURRENT_IMAGES=4
-      - FORGE_GOTENBERG_URL=http://gotenberg:3000
-      - FORGE_DOMAIN=${FORGE_DOMAIN}
-      - FORGE_DB_PATH=/data/forge.db
-      - FORGE_FREE_TIER_MONTHLY=250
+      - DOCFORGE_MAX_CONCURRENT_DOCS=6
+      - DOCFORGE_MAX_CONCURRENT_IMAGES=4
+      - DOCFORGE_GOTENBERG_URL=http://gotenberg:3000
+      - DOCFORGE_DOMAIN=${DOCFORGE_DOMAIN}
+      - DOCFORGE_DB_PATH=/data/docforge.db
+      - DOCFORGE_FREE_TIER_MONTHLY=250
     volumes:
       - gateway_data:/data
     depends_on:
@@ -54,15 +54,15 @@ services:
 
   mcpserver:
     build: ./mcpserver
-    container_name: forge-mcp
+    container_name: docforge-mcp
     restart: unless-stopped
     environment:
-      - FORGE_GATEWAY_URL=http://gateway:8000
+      - DOCFORGE_GATEWAY_URL=http://gateway:8000
       # Must match the public hostname or the SDK's DNS-rebinding guard
       # rejects every proxied request.
-      - FORGE_DOMAIN=${FORGE_DOMAIN}
-      # Issued with forgectl and written to .env — never committed.
-      - FORGE_API_KEY=${FORGE_MCP_KEY}
+      - DOCFORGE_DOMAIN=${DOCFORGE_DOMAIN}
+      # Issued with docforgectl and written to .env — never committed.
+      - DOCFORGE_API_KEY=${DOCFORGE_MCP_KEY}
     depends_on:
       - gateway
     deploy:
@@ -73,7 +73,7 @@ services:
   # Apache-2.0. Wraps LibreOffice + Chromium behind a clean HTTP API.
   gotenberg:
     image: gotenberg/gotenberg:8
-    container_name: forge-gotenberg
+    container_name: docforge-gotenberg
     restart: unless-stopped
     command:
       - "gotenberg"
@@ -97,11 +97,11 @@ services:
       # media services on this host are addressed.
       - '--chromium-deny-list=^.*://(localhost|0\.0\.0\.0|\[::1\]|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+)'
       # Compose service names resolve on the internal network.
-      - '--chromium-deny-list=^.*://(gotenberg|gateway|mcpserver|forge-[a-z]+|host\.docker\.internal)'
+      - '--chromium-deny-list=^.*://(gotenberg|gateway|mcpserver|docforge-[a-z]+|host\.docker\.internal)'
       # LibreOffice fetches linked content in office documents. Same exposure,
       # separate flag.
       - '--libreoffice-deny-list=^.*://(localhost|0\.0\.0\.0|\[::1\]|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+)'
-      - '--libreoffice-deny-list=^.*://(gotenberg|gateway|mcpserver|forge-[a-z]+|host\.docker\.internal)'
+      - '--libreoffice-deny-list=^.*://(gotenberg|gateway|mcpserver|docforge-[a-z]+|host\.docker\.internal)'
     deploy:
       resources:
         limits:

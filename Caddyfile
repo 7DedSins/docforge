@@ -1,14 +1,14 @@
-# Hostname comes from FORGE_DOMAIN in .env — see .env.example.
+# Hostname comes from DOCFORGE_DOMAIN in .env — see .env.example.
 #
 # If you don't own a domain, sslip.io resolves <dashed-ip>.sslip.io to that IP
 # with no signup. It sits on the Public Suffix List, so Let's Encrypt treats
 # each subdomain as its own registrable domain and issues normally:
 #
-#     FORGE_DOMAIN=203-0-113-45.sslip.io
+#     DOCFORGE_DOMAIN=203-0-113-45.sslip.io
 #
 # Point it at a real domain later; nothing else needs to change.
 
-{$FORGE_DOMAIN} {
+{$DOCFORGE_DOMAIN} {
 	encode zstd gzip
 
 	# Uploads are capped well under Gotenberg's comfort zone. Without this a

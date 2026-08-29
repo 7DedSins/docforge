@@ -43,7 +43,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # docker compose interpolates ${FORGE_*} at parse time, so the config is
+      # docker compose interpolates ${DOCFORGE_*} at parse time, so the config is
       # only valid with an env file present. Values are irrelevant here — this
       # step checks syntax, not deployment.
       - name: Provide a dummy env

@@ -9,7 +9,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
-COPY forgectl.py ./forgectl.py
+COPY docforgectl.py ./docforgectl.py
 
 EXPOSE 8000
 

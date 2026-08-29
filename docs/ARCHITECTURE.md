@@ -5,7 +5,7 @@
                        │
         ┌──────────────▼──────────────┐
         │  Caddy                      │  automatic TLS (Let's Encrypt)
-        │  ports 80 / 443             │  hostname from $FORGE_DOMAIN
+        │  ports 80 / 443             │  hostname from $DOCFORGE_DOMAIN
         └───┬──────────────────┬──────┘
             │ /mcp*            │ /*
     ┌───────▼──────┐   ┌───────▼────────┐
@@ -62,7 +62,7 @@ turn the service into an open proxy the moment it was listed publicly.
 
 ## Binding, and why it's configurable
 
-`FORGE_BIND_IP` defaults to `0.0.0.0`, which is right for a normal server.
+`DOCFORGE_BIND_IP` defaults to `0.0.0.0`, which is right for a normal server.
 
 Pin it to one address when something else already holds `:80`/`:443` on another
 interface. The concrete case: Tailscale Serve binds the tailnet address, and a
@@ -84,7 +84,7 @@ Recorded so they aren't rediscovered the hard way.
   `TransportSecuritySettings.allowed_hosts` or every proxied request fails with
   a 400. (1.12 also crashes building schemas from union/generic annotations.)
 - **Caddy does not reload on file change.** After editing the Caddyfile:
-  `docker exec forge-caddy caddy reload --config /etc/caddy/Caddyfile`.
+  `docker exec docforge-caddy caddy reload --config /etc/caddy/Caddyfile`.
 - **sslip.io** provides working Let's Encrypt TLS with no domain purchase — it's
   on the Public Suffix List, so each subdomain gets its own rate limit.
 

@@ -13,11 +13,11 @@ def test_issued_keys_are_unique():
 
 
 def test_key_has_recognisable_prefix():
-    assert db.create_key().startswith("forge_")
+    assert db.create_key().startswith("df_")
 
 
 def test_lookup_returns_none_for_unknown_key():
-    assert db.lookup_key("forge_nope") is None
+    assert db.lookup_key("df_nope") is None
 
 
 def test_lookup_returns_row_for_valid_key():
@@ -30,7 +30,7 @@ def test_lookup_returns_row_for_valid_key():
 
 
 def test_hash_is_stable_and_not_reversible():
-    raw = "forge_example"
+    raw = "df_example"
     assert db.hash_key(raw) == db.hash_key(raw)
     assert raw not in db.hash_key(raw)
     assert len(db.hash_key(raw)) == 64  # sha256 hex

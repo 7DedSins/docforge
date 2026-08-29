@@ -1,9 +1,9 @@
-"""Forge API gateway.
+"""DocForge API gateway.
 
-Two products behind one process:
+Two capabilities behind one process:
 
-  DocForge   /v1/convert/*, /v1/pdf/*   — office + HTML/URL to PDF, merging
-  ImageForge /v1/image/*                — HTML templates to PNG/JPEG/WebP
+  Documents  /v1/convert/*, /v1/pdf/*   — office + HTML to PDF, merging
+  Images     /v1/image/*                — HTML templates to PNG/JPEG/WebP
 
 Both delegate the actual rendering to Gotenberg (Apache-2.0), which wraps
 LibreOffice and Chromium. What lives here is the part Gotenberg deliberately
@@ -31,11 +31,11 @@ from jinja2.sandbox import SandboxedEnvironment
 
 from . import db
 
-GOTENBERG = os.environ.get("FORGE_GOTENBERG_URL", "http://gotenberg:3000")
-PUBLIC_HOST = os.environ.get("FORGE_DOMAIN", "your-host")
-FREE_TIER = int(os.environ.get("FORGE_FREE_TIER_MONTHLY", "250"))
-MAX_DOCS = int(os.environ.get("FORGE_MAX_CONCURRENT_DOCS", "6"))
-MAX_IMAGES = int(os.environ.get("FORGE_MAX_CONCURRENT_IMAGES", "4"))
+GOTENBERG = os.environ.get("DOCFORGE_GOTENBERG_URL", "http://gotenberg:3000")
+PUBLIC_HOST = os.environ.get("DOCFORGE_DOMAIN", "your-host")
+FREE_TIER = int(os.environ.get("DOCFORGE_FREE_TIER_MONTHLY", "250"))
+MAX_DOCS = int(os.environ.get("DOCFORGE_MAX_CONCURRENT_DOCS", "6"))
+MAX_IMAGES = int(os.environ.get("DOCFORGE_MAX_CONCURRENT_IMAGES", "4"))
 
 # These semaphores are the safety valve for the whole box. Requests beyond the
 # limit wait rather than spawning more LibreOffice/Chromium processes, so a
@@ -59,7 +59,7 @@ _jinja = SandboxedEnvironment(autoescape=select_autoescape(["html", "xml"]))
 MAX_TEMPLATE_BYTES = 256 * 1024
 
 app = FastAPI(
-    title="Forge API",
+    title="DocForge API",
     version="1.0.0",
     description="Document conversion and template image rendering.",
     docs_url="/docs",
@@ -163,7 +163,7 @@ async def _gotenberg(path: str, files: list, data: dict | None = None) -> bytes:
 
 
 # --------------------------------------------------------------------------
-# DocForge
+# Documents
 # --------------------------------------------------------------------------
 
 OFFICE_EXT = {
@@ -173,7 +173,7 @@ OFFICE_EXT = {
 }
 
 
-@app.post("/v1/convert/office", tags=["DocForge"])
+@app.post("/v1/convert/office", tags=["Documents"])
 async def convert_office(
     file: UploadFile = File(..., description="DOCX, XLSX, PPTX, ODT, RTF, CSV…"),
     landscape: bool = Form(False),
@@ -205,7 +205,7 @@ async def convert_office(
     )
 
 
-@app.post("/v1/convert/html", tags=["DocForge"])
+@app.post("/v1/convert/html", tags=["Documents"])
 async def convert_html(
     html: str = Form(..., description="Full HTML document"),
     landscape: bool = Form(False),
@@ -229,7 +229,7 @@ async def convert_html(
                     headers={"Content-Disposition": 'attachment; filename="document.pdf"'})
 
 
-@app.post("/v1/pdf/merge", tags=["DocForge"])
+@app.post("/v1/pdf/merge", tags=["Documents"])
 async def merge_pdfs(
     files: list[UploadFile] = File(..., description="Two or more PDFs, in order"),
     caller: Caller = Depends(authenticate),
@@ -257,10 +257,10 @@ async def merge_pdfs(
 
 
 # --------------------------------------------------------------------------
-# ImageForge
+# Images
 # --------------------------------------------------------------------------
 
-@app.post("/v1/image/render", tags=["ImageForge"])
+@app.post("/v1/image/render", tags=["Images"])
 async def render_image(
     request: Request,
     caller: Caller = Depends(authenticate),
@@ -366,7 +366,7 @@ async def health():
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def index():
     return f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Forge API</title>
+<html><head><meta charset="utf-8"><title>DocForge API</title>
 <style>
  body{{font:16px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
       max-width:44rem;margin:4rem auto;padding:0 1.5rem;color:#1a1a1a}}
@@ -377,7 +377,7 @@ async def index():
  table{{border-collapse:collapse;width:100%}}
  td,th{{text-align:left;padding:.4rem .6rem;border-bottom:1px solid #eee}}
 </style></head><body>
-<h1>Forge API</h1>
+<h1>DocForge API</h1>
 <p class="sub">Document conversion and template image rendering.</p>
 
 <h2>Endpoints</h2>

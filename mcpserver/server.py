@@ -1,4 +1,4 @@
-"""ForgeMCP — the Forge rendering engine exposed as an MCP server.
+"""DocForge exposed as an MCP server.
 
 Why this exists as a third product rather than a feature: the buyer is
 different. DocForge and ImageForge sell to a developer who writes an HTTP
@@ -25,16 +25,16 @@ import httpx
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
-GATEWAY = os.environ.get("FORGE_GATEWAY_URL", "http://gateway:8000")
+GATEWAY = os.environ.get("DOCFORGE_GATEWAY_URL", "http://gateway:8000")
 # The key the MCP server presents to the gateway. Marketplace-billed calls all
 # arrive under this identity, so its usage row is what we reconcile against the
 # marketplace payout.
-API_KEY = os.environ.get("FORGE_API_KEY", "")
-PUBLIC_HOST = os.environ.get("FORGE_DOMAIN", "localhost")
+API_KEY = os.environ.get("DOCFORGE_API_KEY", "")
+PUBLIC_HOST = os.environ.get("DOCFORGE_DOMAIN", "localhost")
 
 mcp = MCPServer(
-    "forge",
-    title="Forge — documents and images",
+    "docforge",
+    title="DocForge — documents and images",
     instructions=(
         "Convert documents to PDF and render HTML templates to images. "
         "Use html_to_pdf for reports and invoices, render_image for social "

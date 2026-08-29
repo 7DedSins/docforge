@@ -18,7 +18,7 @@ import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime
 
-DB_PATH = os.environ.get("FORGE_DB_PATH", "/data/forge.db")
+DB_PATH = os.environ.get("DOCFORGE_DB_PATH", "/data/docforge.db")
 
 # SQLite tolerates concurrent readers but serialises writers. One lock around
 # writes keeps us off "database is locked" under burst traffic.
@@ -87,7 +87,7 @@ def hash_key(raw: str) -> str:
 
 def create_key(label: str = "", plan: str = "free", monthly_quota: int = 250) -> str:
     """Mint a key. The raw value is returned exactly once and never stored."""
-    raw = "forge_" + secrets.token_urlsafe(32)
+    raw = "df_" + secrets.token_urlsafe(32)
     with cursor(write=True) as conn:
         conn.execute(
             "INSERT INTO api_keys (key_hash, label, plan, monthly_quota, created_at) "

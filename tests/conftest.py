@@ -18,9 +18,9 @@ import pytest
 
 # db.py resolves DB_PATH at import time, so this must be set before the app is
 # imported anywhere in the test session.
-_tmp = tempfile.mkdtemp(prefix="forge-tests-")
-os.environ["FORGE_DB_PATH"] = os.path.join(_tmp, "test.db")
-os.environ.setdefault("FORGE_DOMAIN", "test.local")
+_tmp = tempfile.mkdtemp(prefix="docforge-tests-")
+os.environ["DOCFORGE_DB_PATH"] = os.path.join(_tmp, "test.db")
+os.environ.setdefault("DOCFORGE_DOMAIN", "test.local")
 
 from app import db  # noqa: E402
 from app import main as main_module  # noqa: E402

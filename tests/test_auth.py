@@ -24,7 +24,7 @@ def test_missing_key_rejected(client):
 
 
 def test_unknown_key_rejected(client):
-    r = _render(client, {"Authorization": "Bearer forge_not_a_real_key"})
+    r = _render(client, {"Authorization": "Bearer df_not_a_real_key"})
     assert r.status_code == 401
 
 

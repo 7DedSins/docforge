@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Key management for Forge. Run on the VPS, inside the gateway container.
+"""Key management for DocForge. Run on the VPS, inside the gateway container.
 
-    docker exec -it forge-gateway python /app/forgectl.py issue --label "acme" --plan pro
-    docker exec -it forge-gateway python /app/forgectl.py list
-    docker exec -it forge-gateway python /app/forgectl.py revoke <key-hash-prefix>
-    docker exec -it forge-gateway python /app/forgectl.py stats
+    docker exec -it docforge-gateway python /app/docforgectl.py issue --label "acme" --plan pro
+    docker exec -it docforge-gateway python /app/docforgectl.py list
+    docker exec -it docforge-gateway python /app/docforgectl.py revoke <key-hash-prefix>
+    docker exec -it docforge-gateway python /app/docforgectl.py stats
 
 The raw key is printed exactly once at issue time. It is stored only as a
 SHA-256 hash, so there is deliberately no way to recover it later — reissue
@@ -33,7 +33,7 @@ PLANS = {
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Forge key management")
+    p = argparse.ArgumentParser(description="DocForge key management")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     issue = sub.add_parser("issue", help="mint a new API key")

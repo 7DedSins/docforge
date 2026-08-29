@@ -3,7 +3,7 @@
 Every number here is either read from the config or **measured on a live
 deployment**. Nothing is estimated.
 
-Base URL: whatever you set as `FORGE_DOMAIN`.
+Base URL: whatever you set as `DOCFORGE_DOMAIN`.
 
 ---
 
@@ -13,8 +13,8 @@ Base URL: whatever you set as `FORGE_DOMAIN`.
 |---|---|---|---|
 | Request body | **32 MB** | `Caddyfile` | HTTP 413 |
 | Request timeout | **180 s** | Caddy + httpx | HTTP 504 |
-| Concurrent document conversions | **6** | `FORGE_MAX_CONCURRENT_DOCS` | Queues (adds latency, never fails) |
-| Concurrent image renders | **4** | `FORGE_MAX_CONCURRENT_IMAGES` | Queues |
+| Concurrent document conversions | **6** | `DOCFORGE_MAX_CONCURRENT_DOCS` | Queues (adds latency, never fails) |
+| Concurrent image renders | **4** | `DOCFORGE_MAX_CONCURRENT_IMAGES` | Queues |
 | Image width / height | **16–4000 px** each | `main.py` | HTTP 400 |
 | Template source | **256 KB** | `main.py` | HTTP 413 |
 | PDFs per merge | **2 minimum** | `main.py` | HTTP 400 |
@@ -141,7 +141,7 @@ Each of these is a config change, not a rewrite:
 | To raise | Change | Cost |
 |---|---|---|
 | Body size | `Caddyfile` → `max_size` | free |
-| Concurrency | `FORGE_MAX_CONCURRENT_*` | free, but watch the media stack |
+| Concurrency | `DOCFORGE_MAX_CONCURRENT_*` | free, but watch the media stack |
 | Throughput | Move media stack off, or size up the VPS | Contabo upgrade |
 | Image dimensions | `main.py` bounds check | free |
 

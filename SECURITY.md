@@ -7,7 +7,7 @@ rather than a public issue.
 
 ## Threat model
 
-Forge accepts **untrusted input from authenticated callers**: documents to
+DocForge accepts **untrusted input from authenticated callers**: documents to
 convert, HTML to render, and Jinja2 template *source* for image rendering. A
 valid API key is not a trust boundary — free-tier keys are handed out on signup,
 so every control below has to hold against someone who has one.
