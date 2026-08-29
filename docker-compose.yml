@@ -71,8 +71,10 @@ services:
           memory: 256M
 
   # Apache-2.0. Wraps LibreOffice + Chromium behind a clean HTTP API.
+  # Built locally rather than pulled, to add the Georgia metric substitute the
+  # base image lacks — see gotenberg/Dockerfile.
   gotenberg:
-    image: gotenberg/gotenberg:8
+    build: ./gotenberg
     container_name: docforge-gotenberg
     restart: unless-stopped
     command:

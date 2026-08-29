@@ -168,8 +168,12 @@ Stated plainly, because you'll hit them otherwise:
 - **LibreOffice ≠ Word.** The same DOCX renders slightly differently — page
   breaks, font fallbacks, hyphenation. Fine for generic documents, not
   pixel-identical to Word.
-- **Fonts are limited to the container's set.** Embed fonts as base64 in HTML
-  templates if you need specific ones.
+- **Fonts are limited to the container's set.** Calibri, Cambria, Georgia,
+  Times New Roman, Arial and Courier New all resolve to metric-compatible
+  clones (Carlito, Caladea, Gelasio, Liberation), so line breaks land where the
+  author put them. Anything without a clone — Verdana, Tahoma — falls back to a
+  generic face and will reflow. Embed fonts as base64 in HTML templates if you
+  need exact glyphs.
 - **No async/webhook mode.** Every call blocks until the file is ready.
 - Request body capped at 32 MB, timeout 180 s, image dimensions 16–4000 px.
 
