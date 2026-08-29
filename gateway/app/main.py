@@ -92,6 +92,55 @@ app = FastAPI(
 )
 
 
+def _downgrade_to_30(node: Any) -> Any:
+    """Rewrite JSON-Schema 2020-12 nullability into OpenAPI 3.0 form, in place.
+
+    FastAPI renders `Optional[str]` as `anyOf: [{type: string}, {type: "null"}]`.
+    That is valid 3.1 and invalid 3.0 — `"null"` is not among 3.0's permitted
+    types — so a 3.0 validator rejects the document with one error per optional
+    parameter. 3.0 spells the same thing as `{type: string, nullable: true}`.
+
+    Also handles the list form, `type: ["string", "null"]`.
+
+    Declaring `openapi: 3.0.3` without this is dishonest: the header claims a
+    version the body does not satisfy, which is exactly how the first attempt
+    failed validation on upload.
+    """
+    if isinstance(node, list):
+        return [_downgrade_to_30(v) for v in node]
+    if not isinstance(node, dict):
+        return node
+
+    for combinator in ("anyOf", "oneOf"):
+        options = node.get(combinator)
+        if not isinstance(options, list):
+            continue
+        non_null = [o for o in options
+                    if not (isinstance(o, dict) and o.get("type") == "null")]
+        if len(non_null) == len(options):
+            continue  # no null member; leave the combinator alone
+        node.pop(combinator)
+        node["nullable"] = True
+        if len(non_null) == 1 and isinstance(non_null[0], dict):
+            # Single remaining option collapses into the parent, which is the
+            # readable 3.0 shape and what generators expect.
+            for k, v in non_null[0].items():
+                node.setdefault(k, v)
+        elif non_null:
+            node[combinator] = non_null
+
+    # `type: ["string", "null"]` — the other 2020-12 nullability spelling.
+    if isinstance(node.get("type"), list):
+        kinds = [t for t in node["type"] if t != "null"]
+        if len(kinds) < len(node["type"]):
+            node["nullable"] = True
+        node["type"] = kinds[0] if len(kinds) == 1 else kinds
+
+    for key, value in list(node.items()):
+        node[key] = _downgrade_to_30(value)
+    return node
+
+
 def _openapi_30() -> dict:
     """Emit the schema as OpenAPI 3.0.3 rather than FastAPI's default 3.1.0.
 
@@ -112,7 +161,7 @@ def _openapi_30() -> dict:
         return app.openapi_schema
     from fastapi.openapi.utils import get_openapi
 
-    app.openapi_schema = get_openapi(
+    schema = get_openapi(
         title=app.title,
         version=app.version,
         openapi_version="3.0.3",
@@ -120,6 +169,8 @@ def _openapi_30() -> dict:
         routes=app.routes,
         servers=app.servers,
     )
+    # get_openapi honours the version string but still emits a 2020-12 body.
+    app.openapi_schema = _downgrade_to_30(schema)
     return app.openapi_schema
 
 

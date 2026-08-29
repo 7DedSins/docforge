@@ -193,9 +193,50 @@ def test_openapi_declares_a_server(client):
     assert schema["servers"][0]["url"].startswith("http")
 
 
-def test_openapi_uses_no_31_only_constructs(client):
-    """The 3.0 declaration is only honest while the body stays 3.0-valid."""
-    import json
-    raw = json.dumps(client.get("/openapi.json").json())
-    for construct in ('"const":', '"examples": [', '"prefixItems":'):
-        assert construct not in raw, f"3.1-only construct present: {construct}"
+# The exact set OpenAPI 3.0 permits. "null" is absent — that is the whole point.
+OPENAPI_30_TYPES = {"array", "boolean", "integer", "number", "object", "string"}
+
+
+def _walk(node, path=""):
+    """Yield (path, node) for every dict in the document."""
+    if isinstance(node, dict):
+        yield path, node
+        for k, v in node.items():
+            yield from _walk(v, f"{path}.{k}")
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            yield from _walk(v, f"{path}[{i}]")
+
+
+def test_openapi_declares_no_type_outside_the_30_set(client):
+    """RapidAPI rejected the first upload with 20 of exactly this error.
+
+    FastAPI renders Optional[str] as anyOf:[{type:string},{type:"null"}], which
+    is valid 3.1 and invalid 3.0 — one ENUM_VALUE_NOT_ALLOWED per optional
+    parameter. Checking for `const`/`prefixItems`, as an earlier version of this
+    test did, does not catch it.
+    """
+    schema = client.get("/openapi.json").json()
+    offenders = [
+        (path, node["type"])
+        for path, node in _walk(schema)
+        if isinstance(node.get("type"), str) and node["type"] not in OPENAPI_30_TYPES
+    ]
+    assert not offenders, f"types invalid in OpenAPI 3.0: {offenders}"
+
+
+def test_openapi_has_no_list_valued_types(client):
+    """`type: [...]` is 2020-12 only; 3.0 requires a single string."""
+    schema = client.get("/openapi.json").json()
+    offenders = [p for p, n in _walk(schema) if isinstance(n.get("type"), list)]
+    assert not offenders, f"list-valued type at: {offenders}"
+
+
+def test_optional_params_use_nullable_not_a_null_union(client):
+    """The 3.0 spelling of optional, and proof the downgrade actually ran."""
+    schema = client.get("/openapi.json").json()
+    params = schema["paths"]["/v1/usage"]["get"]["parameters"]
+    assert params, "expected the optional auth headers to be documented"
+    for p in params:
+        assert p["schema"].get("nullable") is True
+        assert "anyOf" not in p["schema"]
