@@ -379,7 +379,8 @@ OFFICE_EXT = {
 }
 
 
-@app.post("/v1/convert/office", tags=["Documents"])
+@app.post("/v1/convert/office", tags=["Documents"], operation_id="convertOffice",
+          summary="Convert an office document to PDF")
 async def convert_office(
     file: UploadFile = File(..., description="DOCX, XLSX, PPTX, ODT, RTF, CSV…"),
     landscape: bool = Form(False),
@@ -407,7 +408,8 @@ async def convert_office(
                     headers={"Content-Disposition": 'attachment; filename="converted.pdf"'})
 
 
-@app.post("/v1/convert/html", tags=["Documents"])
+@app.post("/v1/convert/html", tags=["Documents"], operation_id="convertHtml",
+          summary="Convert HTML to PDF")
 async def convert_html(
     html: str = Form(..., description="Full HTML document"),
     landscape: bool = Form(False),
@@ -431,7 +433,8 @@ async def convert_html(
                     headers={"Content-Disposition": 'attachment; filename="document.pdf"'})
 
 
-@app.post("/v1/pdf/merge", tags=["Documents"])
+@app.post("/v1/pdf/merge", tags=["Documents"], operation_id="mergePdfs",
+          summary="Merge several PDFs into one")
 async def merge_pdfs(
     files: list[UploadFile] = File(..., description="Two or more PDFs, in order"),
     caller: Caller = Depends(authenticate),
@@ -462,7 +465,8 @@ async def merge_pdfs(
 # Images
 # --------------------------------------------------------------------------
 
-@app.post("/v1/image/render", tags=["Images"])
+@app.post("/v1/image/render", tags=["Images"], operation_id="renderImage",
+          summary="Render an HTML template to an image")
 async def render_image(request: Request, caller: Caller = Depends(authenticate)):
     """Render an HTML template plus JSON data to an image.
 
@@ -569,7 +573,8 @@ async def demo_convert(request: Request, file: UploadFile = File(...)):
 # Meta
 # --------------------------------------------------------------------------
 
-@app.get("/v1/usage", tags=["Account"])
+@app.get("/v1/usage", tags=["Account"], operation_id="getUsage",
+         summary="Quota and limits for your key")
 async def usage(caller: Caller = Depends(authenticate)):
     return {
         "plan": caller.plan,
