@@ -1,0 +1,113 @@
+# Forge — document + image rendering APIs.
+#
+# Memory limits on every service are deliberate and load-bearing: this box also
+# runs the Kavita/Stash/LANraragi media stack, and an unbounded Chromium pool
+# will happily eat the 4 GB those containers need. Total ceiling here is ~2.1 GB.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: forge-caddy
+    restart: unless-stopped
+    environment:
+      - FORGE_DOMAIN=${FORGE_DOMAIN}
+    ports:
+      # FORGE_BIND_IP is 0.0.0.0 on a normal server. Pin it to one address only
+      # when something else already holds :80/:443 on another interface — e.g.
+      # Tailscale Serve, which binds the tailnet address and would collide with
+      # a wildcard bind, taking those private services down.
+      - "${FORGE_BIND_IP:-0.0.0.0}:80:80"
+      - "${FORGE_BIND_IP:-0.0.0.0}:443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - gateway
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  gateway:
+    build: ./gateway
+    container_name: forge-gateway
+    restart: unless-stopped
+    environment:
+      # Concurrency caps. Gotenberg benchmarks at ~8-10 simultaneous LibreOffice
+      # conversions before resource contention; we stay under that and queue the
+      # rest so a traffic spike degrades latency instead of killing the box.
+      - FORGE_MAX_CONCURRENT_DOCS=6
+      - FORGE_MAX_CONCURRENT_IMAGES=4
+      - FORGE_GOTENBERG_URL=http://gotenberg:3000
+      - FORGE_DOMAIN=${FORGE_DOMAIN}
+      - FORGE_DB_PATH=/data/forge.db
+      - FORGE_FREE_TIER_MONTHLY=250
+    volumes:
+      - gateway_data:/data
+    depends_on:
+      - gotenberg
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  mcpserver:
+    build: ./mcpserver
+    container_name: forge-mcp
+    restart: unless-stopped
+    environment:
+      - FORGE_GATEWAY_URL=http://gateway:8000
+      # Must match the public hostname or the SDK's DNS-rebinding guard
+      # rejects every proxied request.
+      - FORGE_DOMAIN=${FORGE_DOMAIN}
+      # Issued with forgectl and written to .env — never committed.
+      - FORGE_API_KEY=${FORGE_MCP_KEY}
+    depends_on:
+      - gateway
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # Apache-2.0. Wraps LibreOffice + Chromium behind a clean HTTP API.
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: forge-gotenberg
+    restart: unless-stopped
+    command:
+      - "gotenberg"
+      - "--api-port=3000"
+      - "--api-timeout=120s"
+      # LibreOffice cold start is ~3s; keeping instances warm brings conversions
+      # down to ~500ms, which is the difference between a viable price and not.
+      - "--libreoffice-restart-after=50"
+      - "--chromium-max-queue-size=20"
+      #
+      # SSRF containment. Callers control the HTML we render and the documents
+      # we convert, so both engines will happily fetch whatever a caller
+      # references — <iframe src=...>, a linked image in a DOCX. Left open, that
+      # turns this service into a probe for anything reachable from the host.
+      #
+      # Entry 1 preserves Gotenberg's own default (blocks file:// except its
+      # working directory); overriding the flag would otherwise discard it.
+      - '--chromium-deny-list=^file:(?!//\/tmp/).*'
+      # Loopback, RFC1918, link-local/cloud-metadata (169.254.169.254), and
+      # 100.64/10 — the CGNAT range Tailscale uses, which is how the private
+      # media services on this host are addressed.
+      - '--chromium-deny-list=^.*://(localhost|0\.0\.0\.0|\[::1\]|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+)'
+      # Compose service names resolve on the internal network.
+      - '--chromium-deny-list=^.*://(gotenberg|gateway|mcpserver|forge-[a-z]+|host\.docker\.internal)'
+      # LibreOffice fetches linked content in office documents. Same exposure,
+      # separate flag.
+      - '--libreoffice-deny-list=^.*://(localhost|0\.0\.0\.0|\[::1\]|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+)'
+      - '--libreoffice-deny-list=^.*://(gotenberg|gateway|mcpserver|forge-[a-z]+|host\.docker\.internal)'
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+
+volumes:
+  caddy_data:
+  caddy_config:
+  gateway_data:

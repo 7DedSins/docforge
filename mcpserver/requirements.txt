@@ -1,0 +1,5 @@
+# 1.12 crashes building tool schemas from union/generic annotations
+# (`issubclass() arg 1 must be a class`). 2.x handles them correctly.
+mcp==2.1.1
+httpx==0.28.1
+uvicorn[standard]==0.34.0

@@ -1,0 +1,14 @@
+.env
+*.db
+*.db-wal
+*.db-shm
+__pycache__/
+*.pyc
+access.log
+
+# Scratch renders. The committed sample lives in assets/.
+/sample-og.png
+
+# Business notes, deployment credentials and go-to-market planning.
+# Local only — never publish.
+/private/
