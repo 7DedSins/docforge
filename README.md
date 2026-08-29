@@ -55,8 +55,13 @@ account, no API keys to sign up for.
 | `POST` | `/v1/convert/html` | HTML → PDF |
 | `POST` | `/v1/pdf/merge` | Merge PDFs into one |
 | `POST` | `/v1/image/render` | HTML template + JSON → PNG / JPEG / WebP |
-| `GET` | `/v1/usage` | Calls used this month |
+| `GET` | `/v1/usage` | Quota, rate limit and concurrency for your key |
 | `POST` | `/mcp` | The same four tools, as an MCP server |
+| `GET` | `/` | Landing page with a no-signup browser demo |
+
+The root page is a working drag-and-drop converter capped per IP per day. An
+API-only tool can only be evaluated by someone willing to write a curl command
+first; a page a human can use is worth more than another paragraph of docs.
 
 ### Convert a document
 
@@ -121,26 +126,59 @@ shows up as latency instead of errors — or an OOM kill.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `DOCFORGE_MAX_CONCURRENT_DOCS` | `6` | Simultaneous document conversions |
-| `DOCFORGE_MAX_CONCURRENT_IMAGES` | `4` | Simultaneous image renders |
-| `DOCFORGE_FREE_TIER_MONTHLY` | `250` | Quota for `free` plan keys |
+| `DOCFORGE_MAX_CONCURRENT_DOCS` | `6` | Global simultaneous document conversions |
+| `DOCFORGE_MAX_CONCURRENT_IMAGES` | `4` | Global simultaneous image renders |
+| `DOCFORGE_RATE_PER_MIN` | `60` | Per-key requests/minute (sliding window) |
+| `DOCFORGE_KEY_MAX_CONCURRENT` | `4` | Per-key in-flight requests |
+| `DOCFORGE_FREE_TIER_MONTHLY` | `50` | Quota for `free` plan keys |
+| `DOCFORGE_DEMO_PER_DAY` | `3` | Anonymous demo conversions per IP per day |
+| `DOCFORGE_RAPIDAPI_PROXY_SECRET` | *(unset)* | When set, only marketplace traffic is accepted |
 | `DOCFORGE_DB_PATH` | `/data/docforge.db` | SQLite location |
+
+Two layers of protection, doing different jobs. The **global** semaphores stop
+the host falling over. The **per-key** limits stop one caller occupying every
+slot while everyone else queues — measured, 150 concurrent requests from a
+single key pushed p50 latency to 15 s for every other caller. Nothing failed;
+it was simply unusable.
 
 ## Key management
 
 ```bash
-docker exec docforge-gateway python /app/docforgectl.py issue --label acme --plan pro
+docker exec docforge-gateway python /app/docforgectl.py issue --label acme --plan starter
 docker exec docforge-gateway python /app/docforgectl.py list
 docker exec docforge-gateway python /app/docforgectl.py stats
+docker exec docforge-gateway python /app/docforgectl.py abuse
 docker exec docforge-gateway python /app/docforgectl.py revoke <hash-prefix>
 ```
 
-Plans: `free` (250/mo), `starter` (5k), `pro` (50k), `scale` (500k),
+Plans: `free` (50/mo), `starter` (5k), `pro` (50k), `scale` (500k),
 `unlimited`. Keys are stored as SHA-256 hashes — the raw value is shown once at
 issue time and is not recoverable, so a stolen database yields no working
 credentials.
 
-Failed calls are never counted against a quota.
+Failed calls are never counted against a quota. Neither are rate-limited ones:
+a rejected request did no work, so charging for it is indefensible.
+
+### Telling one user from twenty free keys
+
+Every usage row records the caller's IP and, when requests arrive through a
+marketplace, the upstream user id. `docforgectl.py abuse` turns that into three
+signals:
+
+- **free keys sharing an IP** — the signature of one person farming the free tier
+- **one key used from many IPs** — a shared or resold key
+- **free keys burned in a burst** — a script, not someone evaluating the product
+
+None of these prove anything on their own. A shared office NAT looks identical
+to one person with many keys, which is why the command prints a shortlist to
+review rather than blocking anyone automatically.
+
+**You cannot fully prevent free-tier farming**, and a design that claims to is
+lying. Someone with disposable email addresses will always get more free calls
+than you intended. The defence is economic, not technical: keep the free tier
+small enough that farming it is more effort than it's worth, and let the
+marketplace handle identity where one is involved — RapidAPI already verified
+the user and holds their card.
 
 ## TLS without buying a domain
 

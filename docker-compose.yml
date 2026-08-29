@@ -42,7 +42,21 @@ services:
       - DOCFORGE_GOTENBERG_URL=http://gotenberg:3000
       - DOCFORGE_DOMAIN=${DOCFORGE_DOMAIN}
       - DOCFORGE_DB_PATH=/data/docforge.db
-      - DOCFORGE_FREE_TIER_MONTHLY=250
+      # Large enough to build an integration against, too small to run
+      # production on forever.
+      - DOCFORGE_FREE_TIER_MONTHLY=50
+      # Per-caller fairness. The global semaphores above stop the host falling
+      # over; these stop one caller occupying every slot and making everyone
+      # else queue. Measured: 150 concurrent from a single key pushed p50
+      # latency to 15s for every other caller.
+      - DOCFORGE_RATE_PER_MIN=60
+      - DOCFORGE_KEY_MAX_CONCURRENT=4
+      # Anonymous browser demo, per IP per day.
+      - DOCFORGE_DEMO_PER_DAY=3
+      # Set once listed on RapidAPI. When present, every request must carry the
+      # matching X-RapidAPI-Proxy-Secret — otherwise anyone who reads the base
+      # URL off the listing calls the API directly and never pays.
+      - DOCFORGE_RAPIDAPI_PROXY_SECRET=${DOCFORGE_RAPIDAPI_PROXY_SECRET:-}
     volumes:
       - gateway_data:/data
     depends_on:

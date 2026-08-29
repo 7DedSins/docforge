@@ -35,9 +35,25 @@ assumes a gateway in front. Building that gateway is the entire point here.
 effective limit and defeat the protection they exist to provide. Scale by
 raising the semaphore, not by adding workers.
 
-**Concurrency limits queue rather than reject.** Requests past the limit wait
-for a slot instead of spawning another LibreOffice or Chromium process. Overload
-therefore appears as latency, never as errors, and never as an OOM kill.
+**Concurrency limits queue rather than reject.** Requests past the *global*
+limit wait for a slot instead of spawning another LibreOffice or Chromium
+process. Overload therefore appears as latency, never as errors, and never as an
+OOM kill.
+
+**Two limiter layers, answering different questions.** The global semaphores ask
+"can the host survive this?" The per-key rate limit and concurrency cap
+(`limits.py`) ask "is this caller taking more than their share?" Measured
+without the second layer: 150 concurrent requests from one key completed
+successfully but pushed p50 latency to 15 s for every other caller. Safety was
+never at risk; fairness was.
+
+Per-caller state is in-memory and per-process on purpose — it protects *this*
+box's capacity right now, and a restart already frees the capacity it guards.
+Monthly quota, which must survive restarts, lives in SQLite instead.
+
+**Rate limiting uses a sliding window, not a fixed one.** A fixed window lets a
+caller send a full allowance at 59.9 s and another at 60.1 s — double the
+intended burst in 200 ms, which is precisely what the limit exists to prevent.
 
 **SQLite, not a database server.** One row per API call. On a small box, a file
 you can copy is a better backup story than a second daemon. WAL mode lets quota
@@ -87,6 +103,17 @@ Recorded so they aren't rediscovered the hard way.
   `docker exec docforge-caddy caddy reload --config /etc/caddy/Caddyfile`.
 - **sslip.io** provides working Let's Encrypt TLS with no domain purchase — it's
   on the Public Suffix List, so each subdomain gets its own rate limit.
+- **Schema order is load-bearing: tables, then `ALTER TABLE`, then indexes.**
+  Declaring an index on a column in the same script that declares the table
+  works on a fresh database and fails on an existing one — `CREATE TABLE IF NOT
+  EXISTS` is a no-op there, so a column added in a later release does not exist
+  yet and the index dies with "no such column". That crashes startup on exactly
+  the deployments with data worth keeping. `test_init_upgrades_a_pre_existing_database`
+  pins this.
+- **`X-Forwarded-For`: trust the last entry, not the first.** Caddy *appends*
+  the peer it observed, so earlier entries are whatever the caller sent. Reading
+  the first entry — the usual mistake — lets anyone forge a fresh IP per request
+  and walk through every per-IP limit.
 
 ## Request lifecycle
 

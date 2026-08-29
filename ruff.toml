@@ -20,3 +20,6 @@ ignore = [
 # Fixtures shadow their own names by design, and conftest deliberately imports
 # after setting environment variables.
 "tests/*" = ["E402"]
+# Holds the landing page as one HTML string. Wrapping a <meta> description or a
+# CSS rule to satisfy a Python line limit would corrupt the markup.
+"gateway/app/ui.py" = ["E501"]

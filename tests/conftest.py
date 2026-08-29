@@ -38,7 +38,12 @@ def clean_db():
     with db.cursor(write=True) as conn:
         conn.execute("DELETE FROM usage")
         conn.execute("DELETE FROM api_keys")
+        conn.execute("DELETE FROM demo_usage")
     yield
+    # Rate limiter and concurrency guard are in-memory and survive between
+    # tests, so a test that exhausts an allowance would poison the next one.
+    main_module._rate._hits.clear()
+    main_module._conc._inflight.clear()
 
 
 @pytest.fixture

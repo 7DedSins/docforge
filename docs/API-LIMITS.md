@@ -13,8 +13,12 @@ Base URL: whatever you set as `DOCFORGE_DOMAIN`.
 |---|---|---|---|
 | Request body | **32 MB** | `Caddyfile` | HTTP 413 |
 | Request timeout | **180 s** | Caddy + httpx | HTTP 504 |
-| Concurrent document conversions | **6** | `DOCFORGE_MAX_CONCURRENT_DOCS` | Queues (adds latency, never fails) |
-| Concurrent image renders | **4** | `DOCFORGE_MAX_CONCURRENT_IMAGES` | Queues |
+| Concurrent document conversions (global) | **6** | `DOCFORGE_MAX_CONCURRENT_DOCS` | Queues (adds latency, never fails) |
+| Concurrent image renders (global) | **4** | `DOCFORGE_MAX_CONCURRENT_IMAGES` | Queues |
+| Requests per minute, per key | **60** | `DOCFORGE_RATE_PER_MIN` | HTTP 429 + `Retry-After` |
+| In-flight requests, per key | **4** | `DOCFORGE_KEY_MAX_CONCURRENT` | HTTP 429 |
+| Anonymous demo, per IP per day | **3** | `DOCFORGE_DEMO_PER_DAY` | HTTP 429 |
+| Anonymous demo file size | **5 MB** | `main.py` | HTTP 413 |
 | Image width / height | **16–4000 px** each | `main.py` | HTTP 400 |
 | Template source | **256 KB** | `main.py` | HTTP 413 |
 | PDFs per merge | **2 minimum** | `main.py` | HTTP 400 |
@@ -73,8 +77,23 @@ Against the pricing tiers:
 Even **2 million calls/month** is only 0.77/sec average. The constraint is never
 the monthly total — it's simultaneous bursts.
 
-**So:** the tiers are safe. Add a per-key concurrency cap before selling Scale,
-so one customer's batch job can't monopolise all six slots.
+**So:** the tiers are safe on volume. The constraint that actually bit was
+*fairness*, and it is now handled by the per-key limits above.
+
+### Measured behaviour under a single-key flood
+
+Before per-key caps existed, one key firing everything it had:
+
+| Concurrent | Succeeded | Wall | Throughput | p50 |
+|---|---|---|---|---|
+| 10 | 10/10 | 5.6 s | 1.80/s | 5.1 s |
+| 50 | 50/50 | 11.0 s | 4.54/s | 6.9 s |
+| 150 | 150/150 | 29.7 s | 5.06/s | **15.6 s** |
+
+Nothing failed — the global semaphores held and the host stayed up. But every
+other caller waited up to 30 seconds behind one customer. That is the problem
+the per-key concurrency cap solves: it converts "one caller degrades everyone"
+into "one caller degrades themselves".
 
 ---
 
@@ -82,7 +101,7 @@ so one customer's batch job can't monopolise all six slots.
 
 | Plan | Calls/month |
 |---|---|
-| `free` | 250 |
+| `free` | 50 |
 | `starter` | 5,000 |
 | `pro` | 50,000 |
 | `scale` | 500,000 |

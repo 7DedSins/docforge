@@ -55,6 +55,38 @@ time and never persisted, so a leaked database file yields no usable
 credentials. Keys are matched by hash; revocation is a flag, not a delete, so
 usage history survives.
 
+### Caller identity and abuse
+
+Every usage row records the caller's IP and, for marketplace traffic, the
+upstream user id. `docforgectl.py abuse` surfaces free keys sharing an IP, one
+key used from many IPs, and free keys burned in a burst.
+
+These are review prompts, not verdicts — a shared office NAT is
+indistinguishable from one person holding many keys, so nothing is blocked
+automatically.
+
+**Free-tier farming cannot be fully prevented**, and any design claiming
+otherwise is overselling. Someone with disposable email addresses will always
+obtain more free calls than intended. The defence is economic: keep the free
+tier small enough that farming costs more effort than it returns, and delegate
+identity to a marketplace where one exists — RapidAPI has already verified the
+user and holds their payment method.
+
+### Marketplace enforcement
+
+With `DOCFORGE_RAPIDAPI_PROXY_SECRET` set, every request must carry a matching
+`X-RapidAPI-Proxy-Secret`. Without it, anyone who reads the base URL off a
+marketplace listing calls the API directly and never pays. The comparison is
+constant-time; a plain `!=` leaks the secret a byte at a time to anyone willing
+to measure response latency.
+
+### Client address resolution
+
+Per-IP limits are only as trustworthy as the address they key on. Caddy
+*appends* the peer it observed to `X-Forwarded-For`, so the **last** entry is
+the only trustworthy one. Reading the first entry — the common implementation —
+lets a caller forge a fresh IP per request and bypass every per-IP control.
+
 ### Availability
 
 - Request bodies capped at 32 MB, render timeout 180 s.
@@ -62,15 +94,21 @@ usage history survives.
   for minutes with a 20000×20000 render.
 - Concurrency semaphores (6 documents, 4 images) mean excess load **queues**
   rather than spawning unbounded LibreOffice/Chromium processes.
+- Per-key sliding-window rate limit and in-flight cap, so one caller cannot
+  occupy every slot. Measured before these existed: 150 concurrent requests
+  from a single key raised p50 latency to 15 s for everyone else.
+- The anonymous demo is capped per IP per day, counted **before** rendering —
+  counting on success would let a caller burn CPU for free with files they know
+  will fail.
 - Every container has a hard memory limit.
 
 ### Known gaps
 
 Stated plainly rather than discovered by a reader:
 
-- **No per-key rate limit.** Quotas are monthly, not per-second. One key can
-  consume all concurrency slots. Put a reverse-proxy rate limit in front before
-  selling a high-volume tier.
+- **Limiter state is per-process and in-memory.** Correct for a single-worker
+  deployment, which is what this ships as. Running multiple gateway replicas
+  would multiply every per-key allowance — move the limiter to Redis first.
 - **No request-body scanning.** A malformed document that crashes LibreOffice
   produces a 502, not a compromise — but it is a denial-of-service avenue.
 - **Sandbox escapes are possible in principle.** Jinja2's sandbox has had

@@ -86,3 +86,52 @@ def test_revocation_preserves_usage_history():
         conn.execute("UPDATE api_keys SET active = 0 WHERE key_hash = ?", (h,))
     assert db.lookup_key(raw) is None
     assert db.month_usage(h) == 2
+
+
+def test_init_upgrades_a_pre_existing_database(tmp_path, monkeypatch):
+    """Startup must survive a database created by an earlier release.
+
+    Regression: the schema indexed usage(ip, ...) in the same script that
+    declared the table. On a fresh database that works. On an existing one
+    CREATE TABLE IF NOT EXISTS is a no-op, so `ip` did not exist yet and the
+    index failed with "no such column" — crashing startup on precisely the
+    deployments with data worth keeping.
+    """
+    import sqlite3
+
+    old_db = tmp_path / "old.db"
+    conn = sqlite3.connect(old_db)
+    # The v1.0 shape: no ip, no subject, no per-key limits, no demo table.
+    conn.executescript("""
+        CREATE TABLE api_keys (
+            key_hash TEXT PRIMARY KEY, label TEXT NOT NULL DEFAULT '',
+            plan TEXT NOT NULL DEFAULT 'free',
+            monthly_quota INTEGER NOT NULL DEFAULT 250,
+            active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL,
+            billing_ref TEXT);
+        CREATE TABLE usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, key_hash TEXT NOT NULL,
+            ts TEXT NOT NULL, endpoint TEXT NOT NULL,
+            units INTEGER NOT NULL DEFAULT 1, status INTEGER NOT NULL,
+            ms INTEGER NOT NULL DEFAULT 0);
+        INSERT INTO api_keys VALUES ('abc', 'legacy', 'pro', 250, 1, '2026-01-01', NULL);
+        INSERT INTO usage (key_hash, ts, endpoint, units, status, ms)
+            VALUES ('abc', '2026-01-01T00:00:00+00:00', 'convert/html', 1, 200, 10);
+    """)
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(db, "DB_PATH", str(old_db))
+    db.init()          # must not raise
+    db.init()          # and must be idempotent
+
+    with db.cursor() as c:
+        cols = {r["name"] for r in c.execute("PRAGMA table_info(usage)")}
+        assert {"ip", "subject"} <= cols
+        kcols = {r["name"] for r in c.execute("PRAGMA table_info(api_keys)")}
+        assert {"rate_per_min", "max_concurrent"} <= kcols
+        # Existing data survives the upgrade.
+        assert c.execute("SELECT COUNT(*) n FROM usage").fetchone()["n"] == 1
+        assert c.execute("SELECT COUNT(*) n FROM api_keys").fetchone()["n"] == 1
+        # And the new demo table exists.
+        c.execute("SELECT COUNT(*) FROM demo_usage")
