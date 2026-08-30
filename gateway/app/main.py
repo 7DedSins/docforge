@@ -236,7 +236,13 @@ def client_ip(request: Request) -> str:
 
 
 class Caller:
-    def __init__(self, row, used: int, ip: str, subject: str):
+    def __init__(self, row, used: int, ip: str, subject: str,
+                 via_marketplace: bool = False):
+        # How the caller authenticated, not merely whether an upstream user id
+        # happened to arrive. A marketplace request with no X-RapidAPI-User must
+        # still be treated as marketplace — otherwise it falls through to the
+        # direct branch and is told the shared key's plan.
+        self.via_marketplace = via_marketplace
         self.key_hash = row["key_hash"]
         self.plan = row["plan"]
         self.quota = int(row["monthly_quota"])
@@ -279,6 +285,7 @@ async def authenticate(
     """
     supplied_secret = (x_rapidapi_proxy_secret or "").strip()
     subject = ""
+    via_marketplace = False
 
     if RAPIDAPI_PROXY_SECRET and supplied_secret:
         # Constant-time compare: a plain `!=` leaks the secret one byte at a
@@ -290,6 +297,7 @@ async def authenticate(
                 503, "Marketplace access is not configured on this deployment."
             )
         raw = RAPIDAPI_KEY
+        via_marketplace = True
         # One marketplace key fronts every consumer, so rate limiting and
         # concurrency bucket on this instead — otherwise one busy subscriber
         # throttles all of them.
@@ -309,7 +317,8 @@ async def authenticate(
     if row is None:
         raise HTTPException(401, "Invalid or revoked API key.")
 
-    caller = Caller(row, db.month_usage(row["key_hash"]), client_ip(request), subject)
+    caller = Caller(row, db.month_usage(row["key_hash"]), client_ip(request),
+                    subject, via_marketplace)
 
     if caller.quota > 0 and caller.used >= caller.quota:
         raise HTTPException(
@@ -652,9 +661,36 @@ async def demo_convert(request: Request, file: UploadFile = File(...)):
 # --------------------------------------------------------------------------
 
 @app.get("/v1/usage", tags=["Account"], operation_id="getUsage",
-         summary="Quota and limits for your key")
+         summary="Your usage and limits")
 async def usage(caller: Caller = Depends(authenticate)):
+    """Usage for the caller.
+
+    Marketplace callers get a different answer to direct ones, deliberately.
+    Every marketplace subscriber arrives under a single shared key, so the
+    key's plan and running total describe the marketplace as a whole, not the
+    person asking. Returning those would tell a subscriber on a 50-call plan
+    that they have unlimited quota, and would disclose the combined call volume
+    of every other subscriber.
+    """
+    if caller.via_marketplace:
+        return {
+            "billing": "marketplace",
+            # The marketplace owns the quota and reports it in its own
+            # X-RateLimit-* response headers; we cannot see the caller's plan.
+            "monthly_quota": None,
+            "used_this_month": (
+                db.month_usage_by_subject(caller.key_hash, caller.subject)
+                if caller.subject else None
+            ),
+            "remaining": None,
+            "note": "Quota is set by your marketplace subscription. See the "
+                    "X-RateLimit-Requests-Remaining response header.",
+            "rate_limit_per_minute": caller.rate,
+            "max_concurrent": caller.max_concurrent,
+        }
+
     return {
+        "billing": "direct",
         "plan": caller.plan,
         "monthly_quota": caller.quota,
         "used_this_month": caller.used,

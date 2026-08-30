@@ -174,6 +174,23 @@ def month_usage(key_hash: str) -> int:
     return int(row["n"])
 
 
+def month_usage_by_subject(key_hash: str, subject: str) -> int:
+    """Units this *subject* consumed under a shared key, this UTC month.
+
+    One marketplace key fronts every subscriber, so the key's total is the sum
+    of everyone's usage. Reporting that back to a caller would show them other
+    customers' volume, so anything subject-scoped must be counted separately.
+    """
+    prefix = datetime.now(UTC).strftime("%Y-%m")
+    with cursor() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(units), 0) AS n FROM usage "
+            "WHERE key_hash = ? AND subject = ? AND ts LIKE ? AND status < 400",
+            (key_hash, subject, f"{prefix}%"),
+        ).fetchone()
+    return int(row["n"])
+
+
 def record(
     key_hash: str,
     endpoint: str,

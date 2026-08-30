@@ -273,3 +273,34 @@ def test_published_plan_quotas(plan, quota):
     sys.modules.setdefault("ctl", mod)
     spec.loader.exec_module(mod)
     assert mod.PLANS[plan] == quota
+
+
+def test_usage_does_not_leak_other_subscribers_volume(client, marketplace, key):
+    """Marketplace subscribers share one key; its total is everyone's usage."""
+    alice = dict(marketplace, **{"X-RapidAPI-User": "alice"})
+    bob = dict(marketplace, **{"X-RapidAPI-User": "bob"})
+    for _ in range(3):
+        _render(client, bob)
+    _render(client, alice)
+
+    body = client.get("/v1/usage", headers=alice).json()
+    assert body["used_this_month"] == 1, "alice must not see bob's calls"
+    assert body["billing"] == "marketplace"
+
+
+def test_usage_never_claims_unlimited_to_a_marketplace_caller(client, marketplace):
+    """The shared key is unlimited here; the subscriber's plan is not.
+
+    Reporting the key's plan told someone on a 50-call plan they had unlimited
+    quota — visible only by reading a real response from the marketplace.
+    """
+    body = client.get("/v1/usage", headers=marketplace).json()
+    assert body.get("plan") != "unlimited"
+    assert body["monthly_quota"] is None
+    assert "marketplace" in body["note"].lower()
+
+
+def test_direct_callers_still_see_their_real_quota(client, auth):
+    body = client.get("/v1/usage", headers=auth).json()
+    assert body["billing"] == "direct"
+    assert body["monthly_quota"] == 1000
