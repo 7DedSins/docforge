@@ -26,3 +26,4 @@ access.log
 /tests/fixtures/v-*.pdf
 /tests/fixtures/*.json
 /tests/fixtures/h*.txt
+/tests/fixtures/inject.png
