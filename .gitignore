@@ -17,3 +17,12 @@ access.log
 # Business notes, deployment credentials and go-to-market planning.
 # Local only — never publish.
 /private/
+
+# Acceptance-run artefacts. The inputs under tests/fixtures/ are committed so
+# the run is reproducible; everything the API hands back is not — it is large,
+# binary, and regenerated on every run.
+/tests/fixtures/out-*
+/tests/fixtures/mcp-*
+/tests/fixtures/v-*.pdf
+/tests/fixtures/*.json
+/tests/fixtures/h*.txt
