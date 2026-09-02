@@ -79,7 +79,14 @@ services:
       # rejects every proxied request.
       - DOCFORGE_DOMAIN=${DOCFORGE_DOMAIN}
       # Issued with docforgectl and written to .env — never committed.
+      # Must carry the `df_` prefix current keys are minted with; a stale
+      # `forge_` value leaves discovery answering 200 while every tool call 401s.
       - DOCFORGE_API_KEY=${DOCFORGE_MCP_KEY}
+      # Set once listed on an MCP marketplace. While present, tools/call must
+      # carry the matching secret — otherwise the marketplace takes the payment
+      # and callers route around it. Discovery stays open either way.
+      - DOCFORGE_MCP_PROXY_SECRET=${DOCFORGE_MCP_PROXY_SECRET:-}
+      - DOCFORGE_MCP_SECRET_HEADERS=${DOCFORGE_MCP_SECRET_HEADERS:-}
     depends_on:
       - gateway
     deploy:

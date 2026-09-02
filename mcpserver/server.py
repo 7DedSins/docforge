@@ -19,9 +19,12 @@ into an open proxy the moment it is listed.
 from __future__ import annotations
 
 import base64
+import json
 import os
+import secrets
 
 import httpx
+import uvicorn
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
@@ -29,8 +32,43 @@ GATEWAY = os.environ.get("DOCFORGE_GATEWAY_URL", "http://gateway:8000")
 # The key the MCP server presents to the gateway. Marketplace-billed calls all
 # arrive under this identity, so its usage row is what we reconcile against the
 # marketplace payout.
+#
+# It must be a key the gateway currently recognises. Keys are minted with a
+# `df_` prefix; a `forge_` value here is a leftover from before the rename and
+# every tool call will fail with 401 while discovery keeps answering 200.
 API_KEY = os.environ.get("DOCFORGE_API_KEY", "")
 PUBLIC_HOST = os.environ.get("DOCFORGE_DOMAIN", "localhost")
+
+# MCP marketplaces resell this server: they take the payment, then forward the
+# call with a shared secret proving it came through them. Without the check,
+# anyone holding the URL invokes the tools directly and the marketplace never
+# bills — and listing review tests for exactly this.
+#
+# Empty disables enforcement, which is the right state when self-hosting.
+PROXY_SECRET = os.environ.get("DOCFORGE_MCP_PROXY_SECRET", "").strip()
+
+# Each marketplace names its header differently. Matching against a list means
+# adding a second marketplace is a config change rather than a code change.
+#
+# Read as "empty or unset means the default". Compose expands an unset variable
+# to an empty string rather than omitting it, so a plain os.environ.get default
+# would be silently replaced by "" — leaving no headers to match and rejecting
+# every marketplace call.
+_DEFAULT_SECRET_HEADERS = "x-agenticmarket-secret,x-mcpize-secret,x-mcp-proxy-secret"
+SECRET_HEADERS = tuple(
+    h.strip().lower()
+    for h in (
+        os.environ.get("DOCFORGE_MCP_SECRET_HEADERS", "").strip()
+        or _DEFAULT_SECRET_HEADERS
+    ).split(",")
+    if h.strip()
+)
+
+# Only billable work is gated. Discovery stays open deliberately: marketplace
+# review reads tool descriptions from `tools/list` and their uptime probes call
+# `initialize`, and neither carries the secret. Gating those fails review just
+# as surely as gating nothing.
+GATED_METHODS = frozenset({"tools/call"})
 
 mcp = MCPServer(
     "docforge",
@@ -172,11 +210,95 @@ async def merge_pdfs(files_base64: list[str]) -> str:
     return _encode(resp.content, "application/pdf")
 
 
+def _is_gated(body: bytes) -> bool:
+    """True when the payload invokes a method that has to be paid for."""
+    try:
+        payload = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        # Malformed JSON is the SDK's to reject, with its own parse error.
+        return False
+    # A JSON-RPC batch arrives as a list; one gated member gates the request.
+    messages = payload if isinstance(payload, list) else [payload]
+    return any(
+        isinstance(m, dict) and m.get("method") in GATED_METHODS for m in messages
+    )
+
+
+async def _forbidden(send) -> None:
+    body = json.dumps(
+        {"error": "Missing or invalid marketplace proxy secret."}
+    ).encode()
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 403,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})
+
+
+class MarketplaceSecretMiddleware:
+    """Reject billable tool calls that did not arrive through a marketplace.
+
+    Written against the raw ASGI interface rather than Starlette's
+    BaseHTTPMiddleware: that wrapper turns the streaming response the MCP
+    transport depends on into a buffered one.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not PROXY_SECRET:
+            await self.app(scope, receive, send)
+            return
+
+        headers = {
+            key.decode("latin-1").lower(): value.decode("latin-1")
+            for key, value in scope.get("headers", [])
+        }
+        supplied = next((headers[h] for h in SECRET_HEADERS if headers.get(h)), "")
+
+        # Deciding this needs the method name, which is in the body, so buffer
+        # the body and hand the app a receive() that replays what we consumed.
+        chunks: list[bytes] = []
+        more_body = True
+        while more_body:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            chunks.append(message.get("body", b""))
+            more_body = message.get("more_body", False)
+        body = b"".join(chunks)
+
+        # compare_digest rather than ==, so response timing cannot be used to
+        # recover the secret one byte at a time.
+        if _is_gated(body) and not secrets.compare_digest(supplied, PROXY_SECRET):
+            await _forbidden(send)
+            return
+
+        replayed = False
+
+        async def replay():
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            # Once the body is replayed, defer to the real receive() and block
+            # there. Returning http.disconnect here instead would tell the app
+            # the client hung up, and it would tear down the streaming response
+            # mid-flight — every SSE reply truncates.
+            return await receive()
+
+        await self.app(scope, replay, send)
+
+
 if __name__ == "__main__":
-    mcp.run(
-        transport="streamable-http",
-        host="0.0.0.0",
-        port=8100,
+    app = mcp.streamable_http_app(
         # The SDK rejects unknown Host/Origin headers to block DNS rebinding.
         # Behind Caddy the header is the public name, so it has to be allowed
         # explicitly or every request 400s.
@@ -187,4 +309,11 @@ if __name__ == "__main__":
         # No session affinity to keep, which matters if this is ever run as
         # more than one replica behind the proxy.
         stateless_http=True,
+        host="0.0.0.0",
+    )
+    uvicorn.run(
+        MarketplaceSecretMiddleware(app),
+        host="0.0.0.0",
+        port=8100,
+        log_level="info",
     )
