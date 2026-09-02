@@ -134,9 +134,10 @@ shows up as latency instead of errors — or an OOM kill.
 | `DOCFORGE_MAX_CONCURRENT_IMAGES` | `4` | Global simultaneous image renders |
 | `DOCFORGE_RATE_PER_MIN` | `60` | Per-key requests/minute (sliding window) |
 | `DOCFORGE_KEY_MAX_CONCURRENT` | `4` | Per-key in-flight requests |
-| `DOCFORGE_FREE_TIER_MONTHLY` | `50` | Quota for `free` plan keys |
+| `DOCFORGE_FREE_TIER_MONTHLY` | `250` | Quota for `free` plan keys |
 | `DOCFORGE_DEMO_PER_DAY` | `3` | Anonymous demo conversions per IP per day |
 | `DOCFORGE_RAPIDAPI_PROXY_SECRET` | *(unset)* | When set, only marketplace traffic is accepted |
+| `DOCFORGE_MCP_PROXY_SECRET` | *(unset)* | When set, MCP `tools/call` requires the marketplace secret |
 | `DOCFORGE_DB_PATH` | `/data/docforge.db` | SQLite location |
 
 Two layers of protection, doing different jobs. The **global** semaphores stop
@@ -155,7 +156,7 @@ docker exec docforge-gateway python /app/docforgectl.py abuse
 docker exec docforge-gateway python /app/docforgectl.py revoke <hash-prefix>
 ```
 
-Plans: `free` (50/mo), `starter` (5k), `pro` (50k), `scale` (500k),
+Plans: `free` (250/mo), `starter` (5k), `pro` (50k), `scale` (500k),
 `unlimited`. Keys are stored as SHA-256 hashes — the raw value is shown once at
 issue time and is not recoverable, so a stolen database yields no working
 credentials.

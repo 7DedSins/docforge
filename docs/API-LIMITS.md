@@ -101,7 +101,7 @@ into "one caller degrades themselves".
 
 | Plan | Calls/month |
 |---|---|
-| `free` | 50 |
+| `free` | 250 |
 | `starter` | 5,000 |
 | `pro` | 50,000 |
 | `scale` | 500,000 |

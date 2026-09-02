@@ -24,7 +24,7 @@ from app import db  # noqa: E402
 # workload on forever. A free tier that quietly serves real traffic is not
 # marketing, it is an unpaid customer.
 PLANS = {
-    "free":      50,
+    "free":      250,
     "starter":   5_000,
     "pro":       50_000,
     "scale":     500_000,

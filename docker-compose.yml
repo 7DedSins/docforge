@@ -44,7 +44,7 @@ services:
       - DOCFORGE_DB_PATH=/data/docforge.db
       # Large enough to build an integration against, too small to run
       # production on forever.
-      - DOCFORGE_FREE_TIER_MONTHLY=50
+      - DOCFORGE_FREE_TIER_MONTHLY=250
       # Per-caller fairness. The global semaphores above stop the host falling
       # over; these stop one caller occupying every slot and making everyone
       # else queue. Measured: 150 concurrent from a single key pushed p50
