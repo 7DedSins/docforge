@@ -39,7 +39,7 @@ from .ui import LANDING_PAGE
 
 GOTENBERG = os.environ.get("DOCFORGE_GOTENBERG_URL", "http://gotenberg:3000")
 PUBLIC_HOST = os.environ.get("DOCFORGE_DOMAIN", "your-host")
-FREE_TIER = int(os.environ.get("DOCFORGE_FREE_TIER_MONTHLY", "50"))
+FREE_TIER = int(os.environ.get("DOCFORGE_FREE_TIER_MONTHLY", "250"))
 MAX_DOCS = int(os.environ.get("DOCFORGE_MAX_CONCURRENT_DOCS", "6"))
 MAX_IMAGES = int(os.environ.get("DOCFORGE_MAX_CONCURRENT_IMAGES", "4"))
 

@@ -259,7 +259,7 @@ def test_abuse_report_flags_key_used_from_many_ips():
     assert db.hash_key(raw) in flagged
 
 
-@pytest.mark.parametrize("plan,quota", [("free", 50), ("starter", 5000), ("pro", 50000)])
+@pytest.mark.parametrize("plan,quota", [("free", 250), ("starter", 5000), ("pro", 50000)])
 def test_published_plan_quotas(plan, quota):
     """Pricing on the landing page must match what keys actually get."""
     import importlib.util
