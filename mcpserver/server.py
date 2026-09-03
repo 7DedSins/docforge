@@ -22,6 +22,7 @@ import base64
 import json
 import os
 import secrets
+from contextvars import ContextVar
 
 import httpx
 import uvicorn
@@ -70,6 +71,40 @@ SECRET_HEADERS = tuple(
 # as surely as gating nothing.
 GATED_METHODS = frozenset({"tools/call"})
 
+# Headers a direct caller may present their own DocForge key in.
+CALLER_KEY_HEADERS = ("authorization", "x-api-key")
+
+# The key to present to the gateway for the request in flight.
+#
+# Without this every MCP call billed to one shared identity, so a public
+# listing would meter thousands of strangers against a single unlimited key —
+# no quotas, no per-user usage, nothing to charge anyone for. A caller who
+# brings their own key is metered as themselves, exactly like the REST API.
+#
+# Set by the middleware before the app is awaited, so it propagates into the
+# tool coroutine and into any task the transport spawns from there.
+_request_key: ContextVar[str] = ContextVar("_request_key", default="")
+
+
+def _auth_header() -> dict[str, str]:
+    """Auth for the gateway call: the caller's key, else the server's own."""
+    return {"Authorization": f"Bearer {_request_key.get() or API_KEY}"}
+
+
+def _caller_key(headers: dict[str, str]) -> str:
+    """Pull a DocForge key out of the request, if the caller supplied one."""
+    raw = ""
+    for name in CALLER_KEY_HEADERS:
+        value = headers.get(name, "").strip()
+        if value:
+            raw = value
+            break
+    # `Authorization: Bearer df_...` and a bare `X-API-Key: df_...` both arrive
+    # here; normalise to the token itself.
+    if raw.lower().startswith("bearer "):
+        raw = raw[7:].strip()
+    return raw
+
 mcp = MCPServer(
     "docforge",
     title="DocForge — documents and images",
@@ -80,10 +115,11 @@ mcp = MCPServer(
     ),
 )
 
+# No default Authorization header: auth is decided per request by _auth_header,
+# because which key to bill depends on how this caller authenticated.
 _client = httpx.AsyncClient(
     base_url=GATEWAY,
     timeout=httpx.Timeout(180.0, connect=10.0),
-    headers={"Authorization": f"Bearer {API_KEY}"},
 )
 
 # Agents routinely hand back multi-megabyte base64 blobs and blow their own
@@ -115,6 +151,7 @@ async def html_to_pdf(html: str, landscape: bool = False) -> str:
     resp = await _client.post(
         "/v1/convert/html",
         data={"html": html, "landscape": str(landscape).lower()},
+        headers=_auth_header(),
     )
     if resp.status_code != 200:
         return f"ERROR {resp.status_code}: {resp.text[:300]}"
@@ -148,6 +185,7 @@ async def render_image(
             "height": height,
             "format": image_format,
         },
+        headers=_auth_header(),
     )
     if resp.status_code != 200:
         return f"ERROR {resp.status_code}: {resp.text[:300]}"
@@ -177,6 +215,7 @@ async def convert_office_document(
         "/v1/convert/office",
         files={"file": (filename, raw)},
         data={"landscape": str(landscape).lower()},
+        headers=_auth_header(),
     )
     if resp.status_code != 200:
         return f"ERROR {resp.status_code}: {resp.text[:300]}"
@@ -204,7 +243,9 @@ async def merge_pdfs(files_base64: list[str]) -> str:
             return f"ERROR: entry {i + 1} decoded to an empty file."
         parts.append(("files", (f"{i:04d}.pdf", raw, "application/pdf")))
 
-    resp = await _client.post("/v1/pdf/merge", files=parts)
+    resp = await _client.post(
+        "/v1/pdf/merge", files=parts, headers=_auth_header()
+    )
     if resp.status_code != 200:
         return f"ERROR {resp.status_code}: {resp.text[:300]}"
     return _encode(resp.content, "application/pdf")
@@ -224,10 +265,8 @@ def _is_gated(body: bytes) -> bool:
     )
 
 
-async def _forbidden(send) -> None:
-    body = json.dumps(
-        {"error": "Missing or invalid marketplace proxy secret."}
-    ).encode()
+async def _forbidden(send, reason: str) -> None:
+    body = json.dumps({"error": reason}).encode()
     await send(
         {
             "type": "http.response.start",
@@ -241,8 +280,18 @@ async def _forbidden(send) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
-class MarketplaceSecretMiddleware:
-    """Reject billable tool calls that did not arrive through a marketplace.
+class CallerAuthMiddleware:
+    """Decide who a tool call is billed to, and reject the ones that aren't.
+
+    Three ways in, in precedence order:
+
+    1. A marketplace forwarded it with a valid proxy secret — bill the server's
+       own key, because the marketplace already took the money.
+    2. The caller brought their own DocForge key — bill that key, so quotas and
+       usage work exactly as they do on the REST API. This is what makes a
+       public registry listing viable.
+    3. Neither. Allowed only when no proxy secret is configured, i.e. while
+       self-hosting, where the server's own key is the right answer.
 
     Written against the raw ASGI interface rather than Starlette's
     BaseHTTPMiddleware: that wrapper turns the streaming response the MCP
@@ -253,7 +302,7 @@ class MarketplaceSecretMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or not PROXY_SECRET:
+        if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
@@ -262,6 +311,13 @@ class MarketplaceSecretMiddleware:
             for key, value in scope.get("headers", [])
         }
         supplied = next((headers[h] for h in SECRET_HEADERS if headers.get(h)), "")
+        caller = _caller_key(headers)
+
+        # compare_digest rather than ==, so response timing cannot be used to
+        # recover the secret one byte at a time.
+        via_marketplace = bool(
+            PROXY_SECRET and supplied and secrets.compare_digest(supplied, PROXY_SECRET)
+        )
 
         # Deciding this needs the method name, which is in the body, so buffer
         # the body and hand the app a receive() that replays what we consumed.
@@ -275,11 +331,24 @@ class MarketplaceSecretMiddleware:
             more_body = message.get("more_body", False)
         body = b"".join(chunks)
 
-        # compare_digest rather than ==, so response timing cannot be used to
-        # recover the secret one byte at a time.
-        if _is_gated(body) and not secrets.compare_digest(supplied, PROXY_SECRET):
-            await _forbidden(send)
-            return
+        if _is_gated(body):
+            if supplied and not via_marketplace:
+                # A wrong secret is refused even when other credentials are
+                # present — same call the REST gateway makes.
+                await _forbidden(send, "Invalid marketplace proxy secret.")
+                return
+            if not via_marketplace and not caller and PROXY_SECRET:
+                await _forbidden(
+                    send,
+                    "Provide a DocForge API key in the Authorization header, "
+                    "or call through a marketplace.",
+                )
+                return
+
+        # Empty means "fall back to the server's own key" in _auth_header. A
+        # marketplace call bills the server's key; a direct caller bills theirs.
+        # An invalid key is the gateway's to reject, not ours to pre-judge.
+        token = _request_key.set("" if via_marketplace else caller)
 
         replayed = False
 
@@ -294,7 +363,10 @@ class MarketplaceSecretMiddleware:
             # mid-flight — every SSE reply truncates.
             return await receive()
 
-        await self.app(scope, replay, send)
+        try:
+            await self.app(scope, replay, send)
+        finally:
+            _request_key.reset(token)
 
 
 if __name__ == "__main__":
@@ -312,7 +384,7 @@ if __name__ == "__main__":
         host="0.0.0.0",
     )
     uvicorn.run(
-        MarketplaceSecretMiddleware(app),
+        CallerAuthMiddleware(app),
         host="0.0.0.0",
         port=8100,
         log_level="info",
