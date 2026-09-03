@@ -1,0 +1,168 @@
+name: docforge
+services:
+  gateway:
+    image: ghcr.io/7dedsins/docforge-gateway:1.3.0
+    container_name: docforge-gateway
+    restart: unless-stopped
+    network_mode: bridge
+    environment:
+      DOCFORGE_GOTENBERG_URL: http://docforge-gotenberg:3000
+      DOCFORGE_DB_PATH: /data/docforge.db
+      DOCFORGE_FREE_TIER_MONTHLY: "250"
+      DOCFORGE_MAX_CONCURRENT_DOCS: "6"
+      DOCFORGE_MAX_CONCURRENT_IMAGES: "4"
+      DOCFORGE_DEMO_PER_DAY: "3"
+      TZ: $TZ
+    ports:
+      - target: 8000
+        published: "8098"
+        protocol: tcp
+    volumes:
+      # A bind mount, not a named volume: CasaOS users expect their data under
+      # /DATA/AppData where the file manager and the backup tooling can see it.
+      - type: bind
+        source: /DATA/AppData/$AppID/data
+        target: /data
+    deploy:
+      resources:
+        reservations:
+          memory: "256M"
+    x-casaos:
+      envs:
+        - container: DOCFORGE_FREE_TIER_MONTHLY
+          description:
+            en_US: Monthly call quota given to keys on the free plan.
+        - container: DOCFORGE_MAX_CONCURRENT_DOCS
+          description:
+            en_US: Simultaneous document conversions. Lower this on a Raspberry Pi.
+        - container: DOCFORGE_DEMO_PER_DAY
+          description:
+            en_US: Conversions allowed per IP per day without an API key.
+      ports:
+        - container: "8000"
+          description:
+            en_US: Web interface and REST API.
+      volumes:
+        - container: /data
+          description:
+            en_US: API keys and usage records. The only thing worth backing up.
+
+  mcpserver:
+    image: ghcr.io/7dedsins/docforge-mcpserver:1.3.0
+    container_name: docforge-mcp
+    restart: unless-stopped
+    network_mode: bridge
+    environment:
+      DOCFORGE_GATEWAY_URL: http://docforge-gateway:8000
+      # The MCP SDK rejects Host headers it doesn't recognise, to block DNS
+      # rebinding. On a LAN it cannot guess the address you use, and the result
+      # is a flat 400 with nothing to explain it. Off is correct on a home
+      # network and wrong on anything internet-facing.
+      DOCFORGE_MCP_DNS_REBINDING_PROTECTION: "off"
+      DOCFORGE_API_KEY: ""
+      TZ: $TZ
+    ports:
+      - target: 8100
+        published: "8100"
+        protocol: tcp
+    deploy:
+      resources:
+        reservations:
+          memory: "128M"
+    x-casaos:
+      envs:
+        - container: DOCFORGE_API_KEY
+          description:
+            en_US: Optional fallback key. Leave empty and let each caller send their own.
+        - container: DOCFORGE_MCP_DNS_REBINDING_PROTECTION
+          description:
+            en_US: Set to "on" if you expose this beyond your LAN.
+      ports:
+        - container: "8100"
+          description:
+            en_US: MCP endpoint for AI agents.
+
+  gotenberg:
+    image: ghcr.io/7dedsins/docforge-gotenberg:1.3.0
+    container_name: docforge-gotenberg
+    restart: unless-stopped
+    network_mode: bridge
+    command:
+      - "gotenberg"
+      - "--api-port=3000"
+      - "--api-timeout=120s"
+      - "--libreoffice-restart-after=50"
+      - "--chromium-max-queue-size=20"
+      # Callers control the HTML rendered and the documents converted, so both
+      # engines will fetch whatever a caller references. On a home network an
+      # open renderer is a probe for the router, the NAS admin page, the printer.
+      - '--chromium-deny-list=^file:(?!//\/tmp/).*'
+      - '--chromium-deny-list=^.*://(localhost|0\.0\.0\.0|\[::1\]|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)'
+      - '--chromium-deny-list=^.*://(docforge-[a-z]+|host\.docker\.internal)'
+      - '--libreoffice-deny-list=^.*://(localhost|0\.0\.0\.0|\[::1\]|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)'
+      - '--libreoffice-deny-list=^.*://(docforge-[a-z]+|host\.docker\.internal)'
+    deploy:
+      resources:
+        reservations:
+          memory: "1024M"
+    x-casaos:
+      ports: []
+      volumes: []
+
+x-casaos:
+  id: io.github.7dedsins.docforge
+  architectures:
+    - amd64
+    - arm64
+  main: gateway
+  author: 7DedSins
+  developer: 7DedSins
+  category: Utilities
+  title:
+    en_US: DocForge
+  tagline:
+    en_US: Turn documents into PDFs and HTML templates into images.
+  description:
+    en_US: |
+      DocForge converts office documents and HTML to PDF, merges PDFs, and
+      renders HTML templates into PNG, JPEG or WebP images.
+
+      Gotenberg already does the conversion brilliantly. What it does not do is
+      the part you need to actually run it as a service: API keys, per-key
+      monthly quotas, usage records, and concurrency limits so one traffic spike
+      does not take the host down. DocForge is that layer.
+
+      Hosted conversion APIs bill roughly $0.08 per document, which is about
+      $1,600 a month at 20,000 conversions. The same workload here costs you
+      whatever your server already costs.
+
+      The four capabilities are also exposed over MCP, so an AI agent can turn a
+      draft into a PDF or a headline into a share image.
+
+      Formats in: DOC, DOCX, ODT, RTF, TXT, XLS, XLSX, ODS, CSV, PPT, PPTX, ODP
+      and HTML. Out: PDF, PNG, JPEG, WebP.
+
+      Open the web interface and there is a drag-and-drop converter you can use
+      immediately. For the API, issue yourself a key:
+
+        docker exec docforge-gateway python /app/docforgectl.py issue --label me --plan unlimited
+
+      Needs roughly 2 GB of RAM under load — Chromium and LibreOffice are inside.
+      Runs on a Raspberry Pi 4 or 5, more slowly.
+  tips:
+    custom: |
+      The MCP container has DNS rebinding protection switched off, which is
+      correct on a home network and wrong if you expose port 8100 to the
+      internet. Set DOCFORGE_MCP_DNS_REBINDING_PROTECTION to "on" and list your
+      hostname in DOCFORGE_MCP_ALLOWED_HOSTS if you do.
+  index: /
+  port_map: "8098"
+  scheme: http
+  icon: https://cdn.jsdelivr.net/gh/7DedSins/docforge@main/assets/logo.svg
+  thumbnail: https://cdn.jsdelivr.net/gh/7DedSins/docforge@main/assets/logo-512.png
+  screenshot_link:
+    - https://cdn.jsdelivr.net/gh/7DedSins/docforge@main/assets/sample-og.png
+  website: https://github.com/7DedSins/docforge
+  repo: https://github.com/7DedSins/docforge
+  support: https://github.com/7DedSins/docforge/issues
+  docs: https://github.com/7DedSins/docforge#readme

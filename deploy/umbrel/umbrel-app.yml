@@ -1,0 +1,64 @@
+manifestVersion: 1
+id: docforge
+category: developer
+name: DocForge
+version: "1.3.0"
+tagline: Turn documents into PDFs and HTML templates into images
+description: >-
+  DocForge converts office documents and HTML to PDF, merges PDFs, and renders
+  HTML templates into PNG, JPEG or WebP images. One HTTP call in, a finished
+  file back — no polling, no job IDs, no signed URLs to fetch afterwards.
+
+
+  Gotenberg already does the conversion brilliantly. What it does not do is the
+  part you need to run it as a service: API keys, per-key monthly quotas, usage
+  records, and concurrency limits so one traffic spike cannot take the device
+  down. DocForge is that layer.
+
+
+  Hosted conversion APIs bill around $0.08 per document, roughly $1,600 a month
+  at 20,000 conversions. The same workload here costs whatever your Umbrel
+  already costs you.
+
+
+  The same four capabilities are exposed over MCP, so an AI agent can produce
+  real files — turn a draft into a PDF, or a headline into a share image.
+
+
+  In: DOC, DOCX, ODT, RTF, TXT, XLS, XLSX, ODS, CSV, PPT, PPTX, ODP, HTML.
+  Out: PDF, PNG, JPEG, WebP.
+
+
+  Open the app and there is a drag-and-drop converter you can use straight away.
+  For the API, issue yourself a key from the terminal:
+  docker exec docforge_gateway_1 python /app/docforgectl.py issue --label me --plan unlimited
+
+
+  Chromium and LibreOffice are inside, so it wants about 2 GB of RAM under load.
+  It runs on a Raspberry Pi, more slowly.
+releaseNotes: >-
+  First Umbrel release.
+
+
+  MCP tool calls are now metered against the caller's own API key rather than a
+  single shared one, so each user gets their own quota and usage record.
+
+
+  The API endpoints are whitelisted past the Umbrel login proxy, because a
+  script or an agent has no session cookie and would otherwise be bounced to a
+  login page on every call.
+developer: 7DedSins
+website: https://github.com/7DedSins/docforge
+dependencies: []
+repo: https://github.com/7DedSins/docforge
+support: https://github.com/7DedSins/docforge/issues
+port: 8098
+gallery:
+  - 1.jpg
+  - 2.jpg
+  - 3.jpg
+path: ""
+defaultUsername: ""
+defaultPassword: ""
+submitter: 7DedSins
+submission: https://github.com/getumbrel/umbrel-apps/pulls
