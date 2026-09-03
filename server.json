@@ -1,0 +1,26 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.7dedsins/docforge",
+  "title": "DocForge — documents and images",
+  "description": "Convert documents and HTML to PDF, merge PDFs, and render HTML templates to images.",
+  "version": "1.2.0",
+  "websiteUrl": "https://169-58-133-198.sslip.io",
+  "repository": {
+    "url": "https://github.com/7DedSins/docforge",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://169-58-133-198.sslip.io/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer <your DocForge API key>. Free tier is 250 calls a month.",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
