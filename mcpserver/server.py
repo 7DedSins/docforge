@@ -369,15 +369,44 @@ class CallerAuthMiddleware:
             _request_key.reset(token)
 
 
+def _transport_security() -> TransportSecuritySettings:
+    """Host allow-list for the SDK's DNS-rebinding guard.
+
+    The guard rejects any Host header it doesn't recognise. Behind Caddy that
+    header is the public name, so it must be listed or every request 400s.
+
+    On a NAS or home server there is no public name — people reach the service
+    at `192.168.1.20:8100`, which the default list would reject. Hence the extra
+    hosts variable, and the escape hatch: both exist so a LAN install works
+    without editing code, which is the difference between being installable from
+    an app store and generating a stream of "it returns 400" reports.
+    """
+    if os.environ.get("DOCFORGE_MCP_DNS_REBINDING_PROTECTION", "").strip().lower() in (
+        "off",
+        "false",
+        "0",
+    ):
+        # Correct only on a trusted network. Off means any Host header is
+        # accepted, which is what makes DNS rebinding possible in the first place.
+        return TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
+    hosts = [PUBLIC_HOST, f"{PUBLIC_HOST}:*", "localhost:*", "127.0.0.1:*"]
+    origins = [f"https://{PUBLIC_HOST}", f"http://{PUBLIC_HOST}:*"]
+
+    # `:*` is a port wildcard the SDK understands, so "192.168.1.20:*" covers
+    # whichever port the app store happened to map.
+    for extra in os.environ.get("DOCFORGE_MCP_ALLOWED_HOSTS", "").split(","):
+        extra = extra.strip()
+        if extra:
+            hosts.append(extra)
+            origins.extend([f"http://{extra}", f"https://{extra}"])
+
+    return TransportSecuritySettings(allowed_hosts=hosts, allowed_origins=origins)
+
+
 if __name__ == "__main__":
     app = mcp.streamable_http_app(
-        # The SDK rejects unknown Host/Origin headers to block DNS rebinding.
-        # Behind Caddy the header is the public name, so it has to be allowed
-        # explicitly or every request 400s.
-        transport_security=TransportSecuritySettings(
-            allowed_hosts=[PUBLIC_HOST, f"{PUBLIC_HOST}:443", "localhost:8100"],
-            allowed_origins=[f"https://{PUBLIC_HOST}"],
-        ),
+        transport_security=_transport_security(),
         # No session affinity to keep, which matters if this is ever run as
         # more than one replica behind the proxy.
         stateless_http=True,
