@@ -27,3 +27,7 @@ access.log
 /tests/fixtures/*.json
 /tests/fixtures/h*.txt
 /tests/fixtures/inject.png
+
+# Downloaded CLI, 20 MB. Fetch from the registry releases page when needed.
+/mcp-publisher.exe
+/mcp-publisher
