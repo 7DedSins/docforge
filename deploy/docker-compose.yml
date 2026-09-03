@@ -1,0 +1,95 @@
+# DocForge for a NAS or home server — CasaOS, Umbrel, Unraid, Coolify, Portainer.
+#
+# Two things differ from the compose file at the repo root, and both are
+# deliberate:
+#
+#   * No Caddy. On a home server something else already owns :80 and :443 —
+#     the platform's own reverse proxy, or another app. A container that grabs
+#     those ports is one that fights the host for them and loses. TLS is the
+#     platform's job here; this stack speaks plain HTTP on a mapped port.
+#
+#   * Published images instead of `build:`. App stores install from a registry
+#     and have no checkout to build from.
+#
+# Everything else — quotas, metering, rate limits, the SSRF deny-lists — is
+# identical, because those are the product, not deployment detail.
+
+name: docforge
+
+services:
+  gateway:
+    image: ghcr.io/7dedsins/docforge-gateway:latest
+    container_name: docforge-gateway
+    restart: unless-stopped
+    ports:
+      - "${DOCFORGE_PORT:-8080}:8000"
+    environment:
+      # Whatever address you reach this at. It is rendered into the landing
+      # page, so a wrong value shows the wrong curl examples and nothing worse.
+      - DOCFORGE_DOMAIN=${DOCFORGE_DOMAIN:-localhost}
+      - DOCFORGE_GOTENBERG_URL=http://gotenberg:3000
+      - DOCFORGE_DB_PATH=/data/docforge.db
+      - DOCFORGE_FREE_TIER_MONTHLY=${DOCFORGE_FREE_TIER_MONTHLY:-250}
+      # Tuned for a shared box. Raise on dedicated hardware — Gotenberg handles
+      # 8-10 simultaneous LibreOffice conversions before contention.
+      - DOCFORGE_MAX_CONCURRENT_DOCS=${DOCFORGE_MAX_CONCURRENT_DOCS:-6}
+      - DOCFORGE_MAX_CONCURRENT_IMAGES=${DOCFORGE_MAX_CONCURRENT_IMAGES:-4}
+      - DOCFORGE_RATE_PER_MIN=${DOCFORGE_RATE_PER_MIN:-60}
+      - DOCFORGE_KEY_MAX_CONCURRENT=${DOCFORGE_KEY_MAX_CONCURRENT:-4}
+      - DOCFORGE_DEMO_PER_DAY=${DOCFORGE_DEMO_PER_DAY:-3}
+    volumes:
+      # Every API key and every usage record. This is the one thing worth
+      # backing up; the containers are disposable.
+      - docforge_data:/data
+    depends_on:
+      - gotenberg
+
+  mcpserver:
+    image: ghcr.io/7dedsins/docforge-mcpserver:latest
+    container_name: docforge-mcp
+    restart: unless-stopped
+    ports:
+      - "${DOCFORGE_MCP_PORT:-8100}:8100"
+    environment:
+      - DOCFORGE_GATEWAY_URL=http://gateway:8000
+      - DOCFORGE_DOMAIN=${DOCFORGE_DOMAIN:-localhost}
+      # Issue one after first start and put it here:
+      #   docker exec docforge-gateway python /app/docforgectl.py \
+      #       issue --label mcp-internal --plan unlimited
+      # Callers may also bring their own key, in which case it is metered
+      # against theirs and this one is only the fallback.
+      - DOCFORGE_API_KEY=${DOCFORGE_MCP_KEY:-}
+      # The SDK rejects Host headers it doesn't recognise, to block DNS
+      # rebinding. On a LAN you reach this at something like 192.168.1.20:8100,
+      # which is not a name it can guess — so list it here. `:*` wildcards the
+      # port, so remapping it later doesn't break anything.
+      #   DOCFORGE_MCP_ALLOWED_HOSTS=192.168.1.20:*,nas.local:*
+      - DOCFORGE_MCP_ALLOWED_HOSTS=${DOCFORGE_MCP_ALLOWED_HOSTS:-}
+      # Last resort if the above is more trouble than it is worth. Accepts any
+      # Host header, so only on a network you trust.
+      - DOCFORGE_MCP_DNS_REBINDING_PROTECTION=${DOCFORGE_MCP_DNS_REBINDING_PROTECTION:-on}
+    depends_on:
+      - gateway
+
+  gotenberg:
+    image: ghcr.io/7dedsins/docforge-gotenberg:latest
+    container_name: docforge-gotenberg
+    restart: unless-stopped
+    command:
+      - "gotenberg"
+      - "--api-port=3000"
+      - "--api-timeout=120s"
+      - "--libreoffice-restart-after=50"
+      - "--chromium-max-queue-size=20"
+      # SSRF containment. Callers control the HTML rendered and the documents
+      # converted, so both engines will fetch whatever a caller references.
+      # Left open on a home network this becomes a probe for every other box on
+      # the LAN — the router, the NAS admin page, the printer.
+      - '--chromium-deny-list=^file:(?!//\/tmp/).*'
+      - '--chromium-deny-list=^.*://(localhost|0\.0\.0\.0|\[::1\]|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+)'
+      - '--chromium-deny-list=^.*://(gotenberg|gateway|mcpserver|docforge-[a-z]+|host\.docker\.internal)'
+      - '--libreoffice-deny-list=^.*://(localhost|0\.0\.0\.0|\[::1\]|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+)'
+      - '--libreoffice-deny-list=^.*://(gotenberg|gateway|mcpserver|docforge-[a-z]+|host\.docker\.internal)'
+
+volumes:
+  docforge_data:
